@@ -8,7 +8,7 @@ import pytz
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
 
-# --- CSS HACK: Weißes Design erzwingen ---
+# --- CSS HACK: Weißes Design erzwingen & Tabellen-Font ---
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -17,7 +17,6 @@ hide_streamlit_style = """
             .stApp {
                 background-color: white;
             }
-            /* Tabellen-Schriftart anpassen für bessere Lesbarkeit */
             div[data-testid="stDataFrame"] {
                 font-family: monospace;
             }
@@ -46,9 +45,9 @@ try:
             df[col] = None
 
 except Exception:
-    df = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Notiz"])
+    df = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"])
 
-# ZAHLEN FORMATIEREN (Komma fixen & in Zahl wandeln)
+# ZAHLEN FORMATIEREN
 if not df.empty:
     df["Betrag"] = df["Betrag"].astype(str).str.replace(',', '.', regex=False)
     df["Betrag"] = pd.to_numeric(df["Betrag"], errors='coerce').fillna(0)
@@ -57,7 +56,6 @@ if not df.empty:
 def berechne_netto(row):
     betrag = row["Betrag"]
     aktion = str(row["Aktion"]).lower()
-    # Ausgaben abziehen
     if ("ausgabe" in aktion or "auszahlung" in aktion) and betrag > 0:
         return -betrag
     return betrag
@@ -82,10 +80,23 @@ st.divider()
 # --- NEUE BUCHUNG ---
 with st.expander("➕ Neue Buchung hinzufügen", expanded=False):
     col1, col2 = st.columns(2)
+    
     with col1:
-        name_input = st.selectbox("Name / Typ", 
-                                  ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", 
-                                   "Roulette (Rot)", "Roulette (Schwarz)", "Mischmaschine", "Sonstiges"])
+        # Liste definieren
+        namen_liste = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", 
+                       "Roulette (Rot)", "Roulette (Schwarz)", "Mischmaschine", "Manuelle Ausgabe 📝"]
+        
+        auswahl_name = st.selectbox("Name / Typ", namen_liste)
+        
+        # LOGIK: Wenn "Manuelle Ausgabe" gewählt ist, zeige Textfeld
+        final_name = auswahl_name
+        if auswahl_name == "Manuelle Ausgabe 📝":
+            custom_input = st.text_input("Wofür?", placeholder="z.B. Pizza, Getränke...")
+            if custom_input:
+                final_name = custom_input  # Der eingegebene Text wird zum Namen
+            else:
+                final_name = "Sonstiges"   # Fallback falls leer gelassen
+
     with col2:
         betrag_input = st.number_input("Betrag €", min_value=0.00, value=10.00, step=5.00, format="%.2f")
 
@@ -104,7 +115,7 @@ with st.expander("➕ Neue Buchung hinzufügen", expanded=False):
         neuer_eintrag = pd.DataFrame([{
             "Datum": now.strftime("%d.%m.%Y"),
             "Zeit": now.strftime("%H:%M"),
-            "Spieler": name_input,
+            "Spieler": final_name,  # Hier wird der (manuelle) Name gespeichert
             "Typ": typ_short,
             "Betrag": betrag_input
         }])
@@ -112,74 +123,55 @@ with st.expander("➕ Neue Buchung hinzufügen", expanded=False):
         df_raw = conn.read(worksheet="Buchungen", ttl=0)
         updated_df = pd.concat([df_raw, neuer_eintrag], ignore_index=True)
         conn.update(worksheet="Buchungen", data=updated_df)
-        st.success("Gebucht!")
+        st.success(f"Gebucht: {final_name} ({betrag_input}€)")
         st.cache_data.clear()
         st.rerun()
 
 st.divider()
 
-# --- DIAGRAMME (2 STÜCK) ---
+# --- DIAGRAMME ---
 st.subheader("📊 Statistik")
 
 if not df.empty:
-    tab1, tab2 = st.tabs(["💰 Einzahlungen (Top-Liste)", "💸 Auszahlungen & Ausgaben"])
+    tab1, tab2 = st.tabs(["💰 Einzahlungen", "💸 Auszahlungen & Ausgaben"])
     
-    # 1. EINZAHLUNGEN CHART
     with tab1:
-        # Filter: Nur "Einzahlung" und keine Bank-Dinge
         ein_df = df[df["Aktion"].astype(str).str.contains("Einzahlung", case=False, na=False)].copy()
         if not ein_df.empty:
-            # Gruppieren und Sortieren
-            leaderboard = ein_df.groupby("Name")["Betrag"].sum().reset_index().sort_values("Betrag", ascending=True) # Ascending true für Balken von oben nach unten
-            
-            fig = px.bar(leaderboard, x="Betrag", y="Name", orientation='h', 
-                         text="Betrag", title="Wer hat wie viel eingezahlt?")
+            leaderboard = ein_df.groupby("Name")["Betrag"].sum().reset_index().sort_values("Betrag", ascending=True)
+            fig = px.bar(leaderboard, x="Betrag", y="Name", orientation='h', text="Betrag", title="Einzahlungen")
             fig.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black')
-            # Textformatierung im Chart
             fig.update_traces(marker_color='#1976D2', texttemplate='%{text:.2f} €', textposition='outside')
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Noch keine Einzahlungen.")
 
-    # 2. AUSZAHLUNGEN CHART
     with tab2:
-        # Filter: Alles was "Ausgabe" oder "Auszahlung" ist
         aus_df = df[df["Aktion"].astype(str).str.contains("Aus", case=False, na=False)].copy()
         if not aus_df.empty:
             lost_board = aus_df.groupby("Name")["Betrag"].sum().reset_index().sort_values("Betrag", ascending=True)
-            
-            fig2 = px.bar(lost_board, x="Betrag", y="Name", orientation='h', 
-                          text="Betrag", title="Wo ging das Geld hin?")
+            fig2 = px.bar(lost_board, x="Betrag", y="Name", orientation='h', text="Betrag", title="Ausgaben / Auszahlungen")
             fig2.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black')
-            # Rote Balken für Ausgaben
             fig2.update_traces(marker_color='#D32F2F', texttemplate='%{text:.2f} €', textposition='outside')
             st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.info("Noch keine Auszahlungen oder Ausgaben.")
+            st.info("Keine Ausgaben.")
 
     st.divider()
 
-    # --- HISTORIE TABELLE (Gestylet) ---
+    # --- HISTORIE TABELLE ---
     st.subheader("📜 Letzte Buchungen")
-    
-    # Wir bereiten die Tabelle für die Anzeige vor
     display_df = df[["Datum", "Name", "Aktion", "Betrag"]].sort_index(ascending=False).copy()
 
-    # Funktion für Farbe: Rot wenn "Aus" im Text, sonst Standard
     def highlight_rows(row):
-        aktion = str(row["Aktion"]).lower()
-        if "aus" in aktion: # Findet Ausgabe und Auszahlung
+        if "aus" in str(row["Aktion"]).lower():
             return ['color: #D32F2F; font-weight: bold'] * len(row)
         return ['color: black'] * len(row)
 
-    # Funktion für Formatierung: 10.0 -> "10,00"
-    def format_german_currency(val):
+    def format_german(val):
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    # Styling anwenden
-    styled_df = display_df.style.apply(highlight_rows, axis=1)\
-        .format({"Betrag": format_german_currency})
-
+    styled_df = display_df.style.apply(highlight_rows, axis=1).format({"Betrag": format_german})
     st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
 
 else:
