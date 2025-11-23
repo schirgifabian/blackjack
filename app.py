@@ -77,14 +77,15 @@ if st.button("🔄 Aktualisieren", use_container_width=True):
 
 st.divider()
 
-# --- NEUE BUCHUNG ---
-with st.expander("➕ Neue Buchung hinzufügen", expanded=False):
+# --- NEUE BUCHUNG (Jetzt immer sichtbar) ---
+st.subheader("➕ Neue Buchung")
+
+with st.container(border=True):
     col1, col2 = st.columns(2)
     
     with col1:
         # Liste definieren
-        namen_liste = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", 
-                       "Roulette (Rot)", "Roulette (Schwarz)", "Mischmaschine", "Manuelle Ausgabe 📝"]
+        namen_liste = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", "Manuelle Ausgabe 📝"]
         
         auswahl_name = st.selectbox("Name / Typ", namen_liste)
         
