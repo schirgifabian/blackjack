@@ -1,138 +1,170 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import altair as alt
 
-# --- KONFIGURATION & DESIGN ---
-st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
+# --- KONFIGURATION ---
+st.set_page_config(page_title="Blackjack Dashboard", page_icon="♠️", layout="centered")
 
-# CSS Hack für schönere Darstellung auf Mobilgeräten (Tabellen kompakter)
+# CSS für Feinschliff (Trotz config.toml hilft das für Metric-Cards)
 st.markdown("""
 <style>
     .stMetric {
-        background-color: #f0f2f6;
-        padding: 10px;
+        background-color: #f5f5f5;
+        padding: 15px;
         border-radius: 10px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
         text-align: center;
     }
-    [data-testid="stMetricValue"] {
-        font-size: 1.5rem !important;
-    }
+    /* Versteckt das Hamburger Menu oben rechts für saubereren Look */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- STATUS INITIALISIEREN ---
-# Wir nutzen Session State, um die Daten während der Laufzeit zu speichern
+# --- DATEN INITIALISIEREN (MIT DEINER HISTORIE) ---
 if 'data' not in st.session_state:
-    st.session_state.data = pd.DataFrame(columns=["Zeit", "Spieler", "Typ", "Betrag"])
+    # Initialer Datensatz
+    initial_data = [
+        ["Initial", "Tobi", "Einzahlung", 10.0],
+        ["Initial", "Alex", "Einzahlung", 30.0],
+        ["Initial", "Dani", "Einzahlung", 30.0],
+        ["Initial", "Fabi", "Einzahlung", 10.0],
+        ["Initial", "Schirgi", "Einzahlung", 120.0],
+        ["Initial", "Lüxn", "Einzahlung", 90.0],
+        ["Initial", "Domi", "Einzahlung", 20.0],
+        ["Initial", "Roulette (Rot)", "Bank Einnahme", 155.0],
+        ["Initial", "Mischmaschine", "Bank Ausgabe", 32.26]
+    ]
+    st.session_state.data = pd.DataFrame(initial_data, columns=["Zeit", "Spieler", "Typ", "Betrag"])
 
-if 'startkapital' not in st.session_state:
-    st.session_state.startkapital = 1000.0  # Standardwert
-
-# --- SIDEBAR (EINSTELLUNGEN) ---
-with st.sidebar:
-    st.header("⚙️ Einstellungen")
-    st.session_state.startkapital = st.number_input(
-        "Bank Startkapital (€)", 
-        value=st.session_state.startkapital, 
-        step=50.0
-    )
-    
-    st.divider()
-    st.write("⚠️ **Daten-Reset:**")
-    if st.button("Alles löschen & Neustart", type="primary"):
-        st.session_state.data = pd.DataFrame(columns=["Zeit", "Spieler", "Typ", "Betrag"])
-        st.rerun()
-
-# --- HAUPTBEREICH ---
-st.title("♠️ Blackjack Bank")
-
-# 1. BERECHNUNGEN
+# --- BERECHNUNGEN ---
 df = st.session_state.data
-total_buyin = df[df['Typ'] == 'Einzahlung']['Betrag'].sum()
-total_payout = df[df['Typ'] == 'Auszahlung']['Betrag'].sum()
-bank_bestand = st.session_state.startkapital + total_buyin - total_payout
 
-# 2. KPI DASHBOARD (Die großen Zahlen)
-col1, col2 = st.columns(2)
-col3, col4 = st.columns(2)
+# Wir filtern nach Typen
+einzahlungen_spieler = df[df['Typ'] == 'Einzahlung']['Betrag'].sum()
+auszahlungen_spieler = df[df['Typ'] == 'Auszahlung']['Betrag'].sum()
+bank_sonder_ein = df[df['Typ'] == 'Bank Einnahme']['Betrag'].sum()
+bank_sonder_aus = df[df['Typ'] == 'Bank Ausgabe']['Betrag'].sum()
 
-with col1:
-    st.metric("🏦 Bank Bestand", f"{bank_bestand:,.0f} €", delta_color="normal")
-with col2:
-    # Profit der Bank (Einzahlung - Auszahlung)
-    bank_profit = total_buyin - total_payout
-    st.metric("📈 Bank Gewinn", f"{bank_profit:,.0f} €", delta=bank_profit)
+# Der aktuelle Koffer-Inhalt
+# (Startkapital ist hier 0, da wir alle Einzahlungen in der Historie haben)
+bank_bestand = einzahlungen_spieler + bank_sonder_ein - auszahlungen_spieler - bank_sonder_aus
 
-with col3:
-    st.metric("Eingezahlt (Buy-In)", f"{total_buyin:,.0f} €")
-with col4:
-    st.metric("Ausgezahlt (Cash-Out)", f"{total_payout:,.0f} €")
+# --- DASHBOARD HEADER ---
+st.title("♠️ Blackjack Bank")
+st.caption(f"Aktuelle Runde | Light Mode Active ☀️")
+
+# Großes KPI
+st.markdown(f"<h1 style='text-align: center; color: #333; font-size: 3.5rem;'>{bank_bestand:,.2f} €</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'><b>Aktueller Bankbestand (Koffer)</b></p>", unsafe_allow_html=True)
 
 st.divider()
 
-# 3. EINGABE MASKE (Expander, damit es am Handy platzsparend ist)
-with st.expander("➕ Neue Buchung (Hier klicken)", expanded=True):
-    with st.form("buchung_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            spieler_name = st.text_input("Name des Spielers")
-        with c2:
-            betrag = st.number_input("Betrag (€)", min_value=1.0, step=5.0, value=50.0)
+# --- VISUALISIERUNG / STATS (Wunsch: Schöne Darstellung) ---
+st.subheader("📊 Woher kommt das Geld?")
+
+# Daten für das Chart aufbereiten
+chart_data = df[df['Typ'].isin(['Einzahlung', 'Bank Einnahme'])].copy()
+chart_data['Kategorie'] = chart_data.apply(lambda x: 'Spieler' if x['Typ'] == 'Einzahlung' else 'Roulette/Sonstiges', axis=1)
+
+# Balkendiagramm: Wer hat wie viel reingebracht?
+c = alt.Chart(chart_data).mark_bar().encode(
+    x=alt.X('Betrag', title='Betrag in €'),
+    y=alt.Y('Spieler', sort='-x', title=''),
+    color=alt.Color('Kategorie', legend=None, scale=alt.Scale(domain=['Spieler', 'Roulette/Sonstiges'], range=['#1f77b4', '#2ca02c'])),
+    tooltip=['Spieler', 'Betrag']
+).properties(height=300)
+
+st.altair_chart(c, use_container_width=True)
+
+# --- EINGABE MASKE ---
+with st.expander("➕ Neue Transaktion buchen", expanded=False):
+    with st.form("input_form", clear_on_submit=True):
+        st.write("Wer macht was?")
+        col_in1, col_in2 = st.columns(2)
         
-        typ_wahl = st.radio("Art der Buchung", ["Einzahlung (Spieler kauft Chips)", "Auszahlung (Spieler gibt Chips ab)"], horizontal=True)
+        with col_in1:
+            # Dropdown mit den bekannten Namen + Option für Neue
+            bekannte_spieler = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", "Neuer Spieler..."]
+            name_input = st.selectbox("Name", bekannte_spieler)
+            if name_input == "Neuer Spieler...":
+                name_manual = st.text_input("Name eingeben")
+            else:
+                name_manual = name_input
         
-        submitted = st.form_submit_button("Buchen ✅", use_container_width=True)
+        with col_in2:
+            betrag_input = st.number_input("Betrag €", min_value=0.0, step=5.0, value=50.0)
         
-        if submitted and spieler_name:
-            now = datetime.datetime.now().strftime("%H:%M")
-            art_short = "Einzahlung" if "Einzahlung" in typ_wahl else "Auszahlung"
+        typ_input = st.radio("Aktion", 
+                             ["Einzahlung (Spieler kauft Chips)", 
+                              "Auszahlung (Spieler tauscht zurück)",
+                              "Bank Ausgabe (Sonstiges)",
+                              "Bank Einnahme (Sonstiges)"],
+                             horizontal=False)
+        
+        if st.form_submit_button("Buchen ✅", use_container_width=True):
+            now_str = datetime.datetime.now().strftime("%H:%M")
             
-            new_entry = pd.DataFrame({
-                "Zeit": [now], 
-                "Spieler": [spieler_name], 
-                "Typ": [art_short], 
-                "Betrag": [betrag]
+            # Mapping der langen Texte auf kurze Datenbank-Typen
+            if "Einzahlung" in typ_input: short_typ = "Einzahlung"
+            elif "Auszahlung" in typ_input: short_typ = "Auszahlung"
+            elif "Bank Ausgabe" in typ_input: short_typ = "Bank Ausgabe"
+            else: short_typ = "Bank Einnahme"
+
+            new_row = pd.DataFrame({
+                "Zeit": [now_str],
+                "Spieler": [name_manual],
+                "Typ": [short_typ],
+                "Betrag": [betrag_input]
             })
-            st.session_state.data = pd.concat([st.session_state.data, new_entry], ignore_index=True)
-            st.rerun() # Seite neu laden um Daten zu aktualisieren
+            st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
+            st.rerun()
 
-# 4. SPIELER STATISTIK (Wer gewinnt gerade?)
-if not df.empty:
-    st.subheader("🏆 Spieler Bilanz")
+st.divider()
+
+# --- TABELLEN ---
+tab1, tab2 = st.tabs(["🏆 Leaderboard (Spieler)", "📜 Gesamte Historie"])
+
+with tab1:
+    # Nur Spieler berechnen (Roulette & Mischmaschine rausfiltern)
+    player_df = df[df['Typ'].isin(['Einzahlung', 'Auszahlung'])]
     
-    # Pivot Tabelle erstellen um pro Spieler zu rechnen
-    players = df['Spieler'].unique()
-    stats = []
-    
-    for p in players:
-        p_df = df[df['Spieler'] == p]
-        einz = p_df[p_df['Typ'] == 'Einzahlung']['Betrag'].sum()
-        ausz = p_df[p_df['Typ'] == 'Auszahlung']['Betrag'].sum()
-        profit = ausz - einz
-        stats.append({"Spieler": p, "Buy-In": einz, "Cash-Out": ausz, "Gewinn/Verlust": profit})
-    
-    stats_df = pd.DataFrame(stats).sort_values(by="Gewinn/Verlust", ascending=False)
-    
-    # Tabelle schön darstellen
+    if not player_df.empty:
+        stats = []
+        for p in player_df['Spieler'].unique():
+            sub = player_df[player_df['Spieler'] == p]
+            buyin = sub[sub['Typ'] == 'Einzahlung']['Betrag'].sum()
+            cashout = sub[sub['Typ'] == 'Auszahlung']['Betrag'].sum()
+            # Gewinn ist Cashout - Buyin (Negativ heißt Geld verloren)
+            profit = cashout - buyin 
+            stats.append({"Spieler": p, "Buy-In": buyin, "Cash-Out": cashout, "Ergebnis": profit})
+        
+        stats_df = pd.DataFrame(stats).sort_values(by="Ergebnis", ascending=False)
+        
+        # Styling der Tabelle (Farben für Plus/Minus)
+        def highlight_profit(val):
+            color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+            return f'color: {color}; font-weight: bold;'
+
+        st.dataframe(
+            stats_df.style.format({"Buy-In": "{:.2f} €", "Cash-Out": "{:.2f} €", "Ergebnis": "{:+.2f} €"})
+                    .map(highlight_profit, subset=['Ergebnis']),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Noch keine Spieler-Daten.")
+
+with tab2:
+    # Die Rohdaten anzeigen, neueste oben
     st.dataframe(
-        stats_df, 
-        column_config={
-            "Gewinn/Verlust": st.column_config.NumberColumn(
-                "Gewinn/Verlust",
-                format="%d €"
-            )
-        },
-        hide_index=True,
-        use_container_width=True
+        df.iloc[::-1], 
+        use_container_width=True, 
+        hide_index=True
     )
-
-    # 5. LETZTE BUCHUNGEN & KORREKTUR
-    st.subheader("📜 Letzte Buchungen")
-    st.dataframe(df.sort_index(ascending=False).head(5), use_container_width=True, hide_index=True)
     
-    if st.button("Letzte Buchung rückgängig machen ↩️"):
-        st.session_state.data = st.session_state.data[:-1]
-        st.rerun()
-
-else:
-    st.info("Noch keine Buchungen vorhanden. Starte oben mit einer Eingabe!")
+    if st.button("Letzten Eintrag löschen (Korrektur)"):
+        if len(st.session_state.data) > 0:
+            st.session_state.data = st.session_state.data[:-1]
+            st.rerun()
