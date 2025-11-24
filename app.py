@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import pytz
+import requests  # <--- NEU: Für Ntfy.sh
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
@@ -124,6 +125,34 @@ with st.container(border=True):
         df_raw = conn.read(worksheet="Buchungen", ttl=0)
         updated_df = pd.concat([df_raw, neuer_eintrag], ignore_index=True)
         conn.update(worksheet="Buchungen", data=updated_df)
+        
+        # --- NTFY.SH NOTIFICATION START ---
+        # Sendet nur bei Bank Einnahme oder Bank Ausgabe
+        if "Bank" in typ_short:
+            try:
+                ntfy_topic = "bj-boys-dashboard"
+                
+                if "Einnahme" in typ_short:
+                    title = "🤑 Bank Einnahme"
+                    message = f"Plus: {betrag_input:.2f} €\nGrund: {final_name}"
+                    tags = "moneybag,up"
+                else: # Ausgabe
+                    title = "💸 Bank Ausgabe"
+                    message = f"Minus: {betrag_input:.2f} €\nZweck: {final_name}"
+                    tags = "chart_with_downwards_trend,down"
+
+                requests.post(
+                    f"https://ntfy.sh/{ntfy_topic}",
+                    data=message.encode('utf-8'),
+                    headers={
+                        "Title": title,
+                        "Tags": tags
+                    }
+                )
+            except Exception as e:
+                print(f"Ntfy Fehler: {e}")
+        # --- NTFY.SH NOTIFICATION END ---
+
         st.success(f"Gebucht: {final_name} ({betrag_input}€)")
         st.cache_data.clear()
         st.rerun()
