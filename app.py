@@ -273,117 +273,81 @@ if not df.empty:
 
         with tab_list:
              st.dataframe(df_display[["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"]].sort_index(ascending=False), use_container_width=True, hide_index=True)
-        # --- FEATURE: SPIELER-DETAILSEITE & HALL OF FAME ---
+               # --- FEATURE: SPIELER-DETAILSEITE & HALL OF FAME ---
         st.markdown("### 👤 Spieler-Profil & Hall of Fame")
         
-        # Namen aus der Datenbank holen
-        all_names_in_db = df["Name"].unique().tolist()
-
-        # OPTION A: Blacklist (Alles rausfiltern, was kein Spieler ist)
-        # Hier trägst du Wörter ein, die ignoriert werden sollen:
-        ignored_names = ["Mischmaschine", "Bank", "Kasse", "Initial", "Admin"]
+        # EXPLICITE Liste der erlaubten Spieler (Alphabetisch sortiert für bessere UX)
+        # WICHTIG: Schreibweise muss exakt mit den Eingaben übereinstimmen!
+        all_players = sorted(["Alex", "Dani", "Domi", "Fabi", "Lüxn", "Schirgi", "Tobi"])
         
-        all_players = sorted([
-            name for name in all_names_in_db 
-            if name not in ignored_names and name is not None
-        ])
-        
-        # OPTION B: Whitelist (Falls du NUR feste Namen zulassen willst)
-        # Wenn du Option B nutzen willst, entferne das # vor der nächsten Zeile:
-        # all_players = sorted(["Max", "Anna", "Tom", "Lisa"]) # <-- Hier deine 7 Namen eintragen
-
         # UI: Dropdown zur Auswahl
         default_idx = 0
         
         # Wir versuchen, den aktuellen Top-Gewinner vorzuwählen
+        # (Aber nur, wenn es einer unserer 7 Jungs ist)
         if not lb.empty:
-            # Suche den ersten Namen aus der Rangliste, der auch in unserer "Echten Spieler"-Liste ist
             for _, row in lb.iterrows():
-                potential_winner = row["Name"]
-                if potential_winner in all_players:
-                    default_idx = all_players.index(potential_winner)
+                candidate = row["Name"]
+                if candidate in all_players:
+                    default_idx = all_players.index(candidate)
                     break
                 
         selected_player = st.selectbox("Wähle einen Spieler für Details:", all_players, index=default_idx)
 
         if selected_player:
             # Daten filtern
-            # WICHTIG: Wir drehen das Vorzeichen um! 
-            # In der Bank-DB ist Einzahlung (+) gut für Bank, schlecht für Spieler-Cashflow.
-            # Auszahlung (-) ist schlecht für Bank, gut für Spieler-Cashflow.
-            # Daher: Spieler Profit = -1 * Bank Netto
             df_p = df[df["Name"] == selected_player].copy()
-            df_p["Player_Profit"] = -df_p["Netto"]
             
-            # 1. Sessions aggregieren (Pro Datum)
-            # Wir summieren alles pro Tag (Einzahlungen vs Auszahlungen)
-            df_sessions = df_p.groupby("Datum")["Player_Profit"].sum().reset_index()
-            # Datum konvertieren für Sortierung
-            df_sessions["Date_Obj"] = pd.to_datetime(df_sessions["Datum"], format="%d.%m.%Y")
-            df_sessions = df_sessions.sort_values("Date_Obj")
-            
-            # 2. Kennzahlen berechnen
-            lifetime_profit = df_sessions["Player_Profit"].sum()
-            
-            # Heute
-            today_str = datetime.now().strftime("%d.%m.%Y")
-            profit_today = df_sessions[df_sessions["Datum"] == today_str]["Player_Profit"].sum()
-            
-            # Beste / Schlechteste Session
-            if not df_sessions.empty:
-                best_session = df_sessions["Player_Profit"].max()
-                worst_session = df_sessions["Player_Profit"].min()
-                best_date = df_sessions.loc[df_sessions["Player_Profit"].idxmax(), "Datum"]
-                worst_date = df_sessions.loc[df_sessions["Player_Profit"].idxmin(), "Datum"]
+            if df_p.empty:
+                st.info(f"Noch keine Buchungen für {selected_player} gefunden.")
+            else:
+                df_p["Player_Profit"] = -df_p["Netto"]
                 
-                # Letzte 5 Abende (exklusive heute, oder einfach letzte 5 Einträge)
-                last_5_sum = df_sessions.tail(5)["Player_Profit"].sum()
-            else:
-                best_session = 0
-                worst_session = 0
-                best_date = "-"
-                worst_date = "-"
-                last_5_sum = 0
+                # 1. Sessions aggregieren (Pro Datum)
+                df_p["Date_Only"] = df_p["Full_Date"].dt.date
+                df_sessions = df_p.groupby("Date_Only")["Player_Profit"].sum().reset_index()
+                df_sessions.columns = ["Datum", "Player_Profit"]
+                
+                # KPIs berechnen
+                lifetime_profit = df_p["Player_Profit"].sum()
+                
+                # Sicherstellen, dass Sessions da sind
+                if not df_sessions.empty:
+                    best_session = df_sessions["Player_Profit"].max()
+                    worst_session = df_sessions["Player_Profit"].min()
+                    best_date = df_sessions.loc[df_sessions["Player_Profit"].idxmax(), "Datum"].strftime("%d.%m.")
+                    worst_date = df_sessions.loc[df_sessions["Player_Profit"].idxmin(), "Datum"].strftime("%d.%m.")
+                else:
+                    best_session, worst_session = 0, 0
+                    best_date, worst_date = "-", "-"
 
-            # 3. BADGES VERGEBEN 🏅
-            badges = []
-            if lifetime_profit > 0: badges.append("🤑 Im Plus")
-            if lifetime_profit < -200: badges.append("💸 Sponsor")
-            if best_session > 50: badges.append("🚀 To The Moon")
-            if worst_session < -50: badges.append("📉 Rekt")
-            if len(df_sessions) > 10: badges.append("👴 Stammgast")
-            # "Bankkiller": Hat mehr als 20% des aktuellen Bankbestands (falls Bank positiv) "gestohlen"
-            if kontostand > 0 and lifetime_profit > (kontostand * 0.2): badges.append("🦈 Bank-Hai")
-            if profit_today > 0: badges.append("🔥 Hot Streak")
+                # Badges Logik
+                badges = []
+                if lifetime_profit > 50: badges.append("🦈 Bank-Hai")
+                if lifetime_profit < -50: badges.append("💸 Sponsor")
+                if best_session > 100: badges.append("🚀 To The Moon")
+                if worst_session < -100: badges.append("📉 Rekt")
+                
+                count_plus = (df_sessions["Player_Profit"] > 0).sum()
+                count_minus = (df_sessions["Player_Profit"] < 0).sum()
+                if count_minus > count_plus + 3: badges.append("💀 Pechvogel")
 
-            # --- ANZEIGE ---
-            
-            # Badges anzeigen
-            if badges:
-                st.write(" ".join([f"`{b}`" for b in badges]))
-            
-            # Metriken Reihe 1
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Lifetime Profit", f"{lifetime_profit:+.2f} €", delta_color="normal")
-            m2.metric("Heute", f"{profit_today:+.2f} €")
-            m3.metric("Letzte 5 Abende", f"{last_5_sum:+.2f} €")
-            
-            # Metriken Reihe 2 (Rekorde)
-            r1, r2 = st.columns(2)
-            r1.metric("Bester Abend", f"{best_session:+.2f} €", help=f"Am {best_date}")
-            r2.metric("Schlimmster Abend", f"{worst_session:+.2f} €", help=f"Am {worst_date}")
-            
-            # Graph: Timeline
-            st.caption("Verlauf der Abende (Gewinn/Verlust pro Session)")
-            if not df_sessions.empty:
-                df_sessions["Color"] = df_sessions["Player_Profit"].apply(lambda x: '#66BB6A' if x >= 0 else '#EF5350')
-                fig_p = px.bar(df_sessions, x="Datum", y="Player_Profit", 
-                               title=f"Verlauf: {selected_player}", text="Player_Profit")
-                fig_p.update_traces(marker_color=df_sessions["Color"], texttemplate='%{text:+.0f}', textposition='outside')
-                fig_p.update_layout(yaxis_title="Gewinn €", paper_bgcolor='white', plot_bgcolor='white', font_color='black')
-                st.plotly_chart(fig_p, use_container_width=True)
-            else:
-                st.info("Noch keine abgeschlossenen Sessions.")
+                # UI Darstellung
+                st.markdown(f"### {selected_player} {' '.join(badges)}")
+                
+                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1.metric("Lifetime Profit", f"{lifetime_profit:+.2f} €")
+                kpi2.metric("Bester Abend", f"{best_session:+.2f} €", help=f"Am {best_date}")
+                kpi3.metric("Schlimmster Abend", f"{worst_session:+.2f} €", help=f"Am {worst_date}")
+                
+                # Graph: Timeline
+                st.caption("Verlauf der Abende (Gewinn/Verlust pro Session)")
+                if not df_sessions.empty:
+                    df_sessions["Color"] = df_sessions["Player_Profit"].apply(lambda x: '#66BB6A' if x >= 0 else '#EF5350')
+                    fig_p = px.bar(df_sessions, x="Datum", y="Player_Profit", text="Player_Profit")
+                    fig_p.update_traces(marker_color=df_sessions["Color"], texttemplate='%{text:+.0f}', textposition='outside')
+                    fig_p.update_layout(yaxis_title="Gewinn €", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig_p, use_container_width=True)
 
 
         # --- TAGESABSCHLUSS & QR CODES ---
