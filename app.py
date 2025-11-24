@@ -50,7 +50,7 @@ if not df.empty:
     df['Full_Date'] = pd.to_datetime(df['Datum'] + ' ' + df['Zeitstempel'].fillna('00:00'), format='%d.%m.%Y %H:%M', errors='coerce')
     df['Full_Date'] = df['Full_Date'].fillna(pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce'))
 
-# --- LOGIK: NETTO & VERLAUF ---
+# --- LOGIK: NETTO BERECHNUNG ---
 def berechne_netto(row):
     betrag = row["Betrag"]
     aktion = str(row["Aktion"]).lower()
@@ -60,14 +60,13 @@ def berechne_netto(row):
 
 if not df.empty:
     df["Netto"] = df.apply(berechne_netto, axis=1)
+    # Sortieren für korrekten Verlauf später
     df = df.sort_values(by="Full_Date", ascending=True).reset_index(drop=True)
-    # WICHTIG: Verlauf berechnen
-    df["Bankverlauf"] = df["Netto"].cumsum()
     kontostand = df["Netto"].sum()
 else:
     kontostand = 0.0
 
-# --- HEADER ---
+# --- HEADER (KONTOSTAND) ---
 color = "black" if kontostand >= 0 else "red"
 st.markdown(f"<h1 style='text-align: center; font-size: 80px; color: {color};'>{kontostand:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".") + "</h1>", unsafe_allow_html=True)
 
@@ -141,32 +140,41 @@ st.divider()
 st.subheader("📊 Statistik")
 
 if not df.empty:
-    # FILTER
-    filter_col1, filter_col2 = st.columns([2, 1])
+    # --- FILTER BEREICH ---
+    filter_col1, filter_col2 = st.columns([2.5, 1])
+    
     with filter_col1:
         zeitraum = st.pills("Zeitraum", ["Aktuelle Session", "Gesamt", "Dieser Monat"], default="Aktuelle Session")
+    
+    with filter_col2:
+        st.write("") # Kleiner Abstandshalter nach unten
+        st.write("") 
+        hide_bank = st.checkbox("Bank-Buchungen ausblenden", value=False)
     
     df_stats = df.copy()
     today = datetime.now().date()
     yesterday = today - timedelta(days=1)
     
-    # LOGIK: Aktuelle Session = Heute UND Gestern (für Spiele nach Mitternacht)
+    # 1. Datum Filter
     if zeitraum == "Aktuelle Session":
         df_stats = df_stats[df_stats["Full_Date"].dt.date.isin([today, yesterday])]
     elif zeitraum == "Dieser Monat":
         df_stats = df_stats[(df_stats["Full_Date"].dt.month == today.month) & (df_stats["Full_Date"].dt.year == today.year)]
 
+    # 2. Bank Filter (Die Checkbox Logik)
+    if hide_bank:
+        df_stats = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False, na=False)]
+
     if df_stats.empty:
-        st.info(f"Keine Daten für '{zeitraum}'.")
+        st.info(f"Keine Daten für Filter: '{zeitraum}'.")
     else:
-        # KPI BERECHNUNG (Logischer aufgebaut)
-        # 1. Bank Änderung (Netto)
+        # Verlauf NEU berechnen basierend auf gefilterten Daten
+        df_stats = df_stats.sort_values(by="Full_Date", ascending=True)
+        df_stats["Bankverlauf"] = df_stats["Netto"].cumsum()
+        
+        # KPI BERECHNUNG
         delta_bank = df_stats["Netto"].sum()
-        
-        # 2. Chips gekauft (Nur Spieler Einzahlungen)
         chips_in = df_stats[df_stats["Aktion"].str.contains("Einzahlung", case=False, na=False)]["Betrag"].sum()
-        
-        # 3. Chips ausgezahlt (Nur Spieler Auszahlungen)
         chips_out = df_stats[df_stats["Aktion"].str.contains("Auszahlung", case=False, na=False)]["Betrag"].sum()
 
         kpi1, kpi2, kpi3 = st.columns(3)
@@ -177,7 +185,7 @@ if not df.empty:
         tab_bilanz, tab_verlauf, tab_list = st.tabs(["🏆 Spieler", "📈 Bank-Verlauf", "📝 Liste"])
 
         with tab_bilanz:
-            # Nur Spieler betrachten
+            # Nur Spieler betrachten (Bank sowieso raus, wenn Checkbox aktiv)
             df_p = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)].copy()
             if not df_p.empty:
                 def get_profit(x):
@@ -192,16 +200,13 @@ if not df.empty:
                 fig.update_traces(marker_color=lb["Color"], texttemplate='%{text:+.2f} €', textposition='outside')
                 fig.update_layout(xaxis_title="Gewinn", paper_bgcolor='white', plot_bgcolor='white', font_color='black')
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("Keine Spielerdaten.")
+            else: st.info("Keine Spielerdaten im gewählten Zeitraum.")
 
         with tab_verlauf:
-            # STEP CHART (Treppenform)
             if len(df_stats) > 0:
-                # Wir fügen einen Startpunkt hinzu für bessere Optik, wenn gewünscht, 
-                # aber line_shape='hv' erledigt das meiste.
                 fig_line = px.line(df_stats, x="Full_Date", y="Bankverlauf", 
-                                   title="Entwicklung Bankbestand",
-                                   line_shape='hv') # <--- DAS MACHT DIE TREPPE (GERADER STRAHL)
+                                   title="Entwicklung Bankbestand (Gefiltert)",
+                                   line_shape='hv')
                 
                 fig_line.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black', yaxis_title="Kontostand €")
                 fig_line.update_traces(line_color='black', line_width=3)
