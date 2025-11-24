@@ -7,8 +7,11 @@ import pytz
 import requests
 import urllib.parse
 
-# --- KONFIGURATION ---
+# --- KONFIGURATION & KONSTANTEN ---
 st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
+
+# Liste der festen Spieler (Wichtig für Filter und Dropdowns)
+VALID_PLAYERS = sorted(["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"])
 
 # --- CSS STYLING ---
 hide_streamlit_style = """
@@ -19,16 +22,16 @@ hide_streamlit_style = """
             .stApp { background-color: white; }
             div[data-testid="stDataFrame"] { font-family: monospace; }
             div[data-testid="stMetricValue"] { font-size: 24px; }
-            div[data-testid="stCheckbox"] { padding-top: 1rem; } 
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
-# --- HELPER: GIROCODE GENERATOR ---
+# --- HELPER FUNKTIONEN ---
+
 def generate_epc_qr_url(name, iban, amount, purpose):
+    """Generiert einen GiroCode (EPC-QR) Link."""
     iban_clean = iban.replace(" ", "").upper()
     amount_str = f"EUR{amount:.2f}"
-    # EPC-QR-Standard Formatierung
     epc_data = f"""BCD
 002
 1
@@ -44,8 +47,8 @@ SCT
     data_encoded = urllib.parse.quote(epc_data)
     return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={data_encoded}"
 
-# --- HELPER: NETTO BERECHNUNG ---
 def berechne_netto(row):
+    """Berechnet den Netto-Einfluss auf die Bank."""
     betrag = row["Betrag"]
     aktion = str(row["Aktion"]).lower()
     # Ausgaben und Auszahlungen verringern den Bankbestand
@@ -53,15 +56,18 @@ def berechne_netto(row):
         return -betrag
     return betrag
 
-# --- TITEL ---
+# --- HAUPTPROGRAMM START ---
+
 st.title("♠️ Blackjack Bank")
 
-# --- VERBINDUNG ---
+# Verbindung zu Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- DATEN LADEN ---
 try:
     df = conn.read(worksheet="Buchungen", ttl=0)
+    
+    # Spalten mappen und sicherstellen
     rename_map = {"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"}
     df = df.rename(columns=rename_map)
     
@@ -72,6 +78,7 @@ try:
 except Exception:
     df = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"])
 
+# --- DATEN VORBEREITEN ---
 if not df.empty:
     # Bereinigung: Kommas zu Punkten, Zahlenformat
     df["Betrag"] = df["Betrag"].astype(str).str.replace(',', '.', regex=False)
@@ -82,10 +89,10 @@ if not df.empty:
     # Fallback falls Zeit fehlt
     df['Full_Date'] = df['Full_Date'].fillna(pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce'))
 
-    # Netto berechnen
+    # Netto berechnen (Bank-Sicht)
     df["Netto"] = df.apply(berechne_netto, axis=1)
     
-    # Sortieren
+    # Sortieren für Verlauf
     df = df.sort_values(by="Full_Date", ascending=True).reset_index(drop=True)
     kontostand = df["Netto"].sum()
 else:
@@ -93,23 +100,23 @@ else:
 
 # --- HEADER (KONTOSTAND) ---
 color = "black" if kontostand >= 0 else "red"
-# Großes Display des Kontostands
 st.markdown(f"<h1 style='text-align: center; font-size: 80px; color: {color};'>{kontostand:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".") + "</h1>", unsafe_allow_html=True)
 
 # Refresh Button
-col_btn1, col_btn2 = st.columns([1, 4]) 
 if st.button("🔄", help="Aktualisieren", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
 st.divider()
 
-# --- BUCHEN (HAUPTFUNKTION) ---
+# --- 1. BUCHUNGSMASKE ---
 with st.expander("➕ Neue Buchung", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        namen_liste = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", "Manuelle Ausgabe 📝"]
-        auswahl_name = st.selectbox("Name", namen_liste)
+        # Dropdown mit den definierten Spielern + Option für Manuell
+        buchung_namen = VALID_PLAYERS + ["Manuelle Ausgabe 📝"]
+        auswahl_name = st.selectbox("Name", buchung_namen)
+        
         final_name = auswahl_name
         if auswahl_name == "Manuelle Ausgabe 📝":
             custom_input = st.text_input("Zweck", placeholder="Pizza / Bier")
@@ -144,7 +151,7 @@ with st.expander("➕ Neue Buchung", expanded=True):
             updated_df = pd.concat([df_raw, neuer_eintrag], ignore_index=True)
             conn.update(worksheet="Buchungen", data=updated_df)
             
-            # Ntfy Logik (Benachrichtigung aufs Handy)
+            # Ntfy Benachrichtigung (Optional)
             if "Bank" in typ_short:
                 try:
                     ntfy_topic = "bj-boys-dashboard"
@@ -155,23 +162,24 @@ with st.expander("➕ Neue Buchung", expanded=True):
                     requests.post(f"https://ntfy.sh/{ntfy_topic}", data=msg.encode('utf-8'), headers={"Title": title.encode('utf-8'), "Tags": tags})
                 except: pass
 
-            st.success(f"Gebucht: {final_name}")
+            st.success(f"Gebucht: {final_name} ({betrag_input:.2f}€)")
             st.cache_data.clear()
             st.rerun()
         except Exception as e:
-            st.error(f"Fehler: {e}")
+            st.error(f"Fehler beim Speichern: {e}")
 
 st.divider()
 
-# --- ANALYSE & STATISTIK ---
-st.subheader("📊 Statistik")
-
+# --- ANALYSE BEREICH (Wird nur angezeigt, wenn Daten da sind) ---
 if not df.empty:
-    # --- FILTER BEREICH ---
+    st.subheader("📊 Statistik")
+    
+    # --- FILTER ---
     filter_col1, filter_col2 = st.columns([3, 1], vertical_alignment="bottom")
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
 
     with filter_col1:
-        # "Benutzerdefiniert" zu den Optionen hinzufügen
         options_list = ["Aktuelle Session", "Gesamt", "Dieser Monat", "Benutzerdefiniert"]
         try:
             zeitraum = st.pills("Zeitraum", options_list, default="Aktuelle Session")
@@ -182,10 +190,8 @@ if not df.empty:
         hide_bank = st.toggle("Bank ausblenden", value=False)
 
     df_stats = df.copy()
-    today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
 
-    # --- DATUMS LOGIK ---
+    # --- FILTER LOGIK ---
     if zeitraum == "Aktuelle Session":
         df_stats = df_stats[df_stats["Full_Date"].dt.date.isin([today, yesterday])]
     
@@ -193,27 +199,14 @@ if not df.empty:
         df_stats = df_stats[(df_stats["Full_Date"].dt.month == today.month) & (df_stats["Full_Date"].dt.year == today.year)]
     
     elif zeitraum == "Benutzerdefiniert":
-        # Datepicker erscheint nur, wenn "Benutzerdefiniert" gewählt ist
         c_date = st.container()
-        d_range = c_date.date_input(
-            "Wähle den Zeitraum:",
-            value=(today - timedelta(days=7), today), # Default: Letzte 7 Tage
-            format="DD.MM.YYYY"
-        )
-        
-        # Logik um sicherzustellen, dass Start & Ende vorhanden sind
+        d_range = c_date.date_input("Wähle den Zeitraum:", value=(today - timedelta(days=7), today), format="DD.MM.YYYY")
         if isinstance(d_range, tuple) and len(d_range) == 2:
-            start_date, end_date = d_range
-            df_stats = df_stats[
-                (df_stats["Full_Date"].dt.date >= start_date) & 
-                (df_stats["Full_Date"].dt.date <= end_date)
-            ]
+            df_stats = df_stats[(df_stats["Full_Date"].dt.date >= d_range[0]) & (df_stats["Full_Date"].dt.date <= d_range[1])]
         elif isinstance(d_range, tuple) and len(d_range) == 1:
-            # Falls User erst das Startdatum geklickt hat
-            start_date = d_range[0]
-            df_stats = df_stats[df_stats["Full_Date"].dt.date == start_date]
+            df_stats = df_stats[df_stats["Full_Date"].dt.date == d_range[0]]
 
-    # 2. Bank Filter (Für Anzeige im Graphen/Liste)
+    # Anzeige-DF vorbereiten
     if hide_bank:
         df_display = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False, na=False)]
     else:
@@ -222,11 +215,10 @@ if not df.empty:
     if df_stats.empty:
         st.info(f"Keine Daten für Filter: '{zeitraum}'.")
     else:
-        # Verlauf NEU berechnen für Anzeige
+        # --- KPIs & TABS ---
         df_display = df_display.sort_values(by="Full_Date", ascending=True)
         df_display["Bankverlauf"] = df_display["Netto"].cumsum()
 
-        # KPI BERECHNUNG
         delta_bank = df_display["Netto"].sum()
         chips_in = df_stats[df_stats["Aktion"].str.contains("Einzahlung", case=False, na=False)]["Betrag"].sum()
         chips_out = df_stats[df_stats["Aktion"].str.contains("Auszahlung", case=False, na=False)]["Betrag"].sum()
@@ -238,14 +230,14 @@ if not df.empty:
 
         tab_bilanz, tab_verlauf, tab_list = st.tabs(["🏆 Spieler", "📈 Bank-Verlauf", "📝 Liste"])
 
-        # Spieler Profit Berechnung (unabhängig vom Bank-Filter)
+        # Leaderboard (immer ohne Bank-Aktionen)
         df_players_only = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)].copy()
 
         if not df_players_only.empty:
             def get_profit(x):
                 ein = x[x["Aktion"].str.contains("Einzahlung")]["Betrag"].sum()
                 aus = x[x["Aktion"].str.contains("Auszahlung")]["Betrag"].sum()
-                return aus - ein
+                return aus - ein # Positiv = Spieler hat gewonnen
 
             lb = df_players_only.groupby("Name").apply(get_profit).reset_index(name="Profit").sort_values("Profit", ascending=False)
         else:
@@ -263,9 +255,7 @@ if not df.empty:
 
         with tab_verlauf:
             if len(df_display) > 0:
-                fig_line = px.line(df_display, x="Full_Date", y="Bankverlauf", 
-                                   title="Entwicklung Bankbestand",
-                                   line_shape='hv')
+                fig_line = px.line(df_display, x="Full_Date", y="Bankverlauf", title="Entwicklung Bankbestand", line_shape='hv')
                 fig_line.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black', yaxis_title="Kontostand €")
                 fig_line.update_traces(line_color='black', line_width=3)
                 st.plotly_chart(fig_line, use_container_width=True)
@@ -273,157 +263,117 @@ if not df.empty:
 
         with tab_list:
              st.dataframe(df_display[["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"]].sort_index(ascending=False), use_container_width=True, hide_index=True)
-               # --- FEATURE: SPIELER-DETAILSEITE & HALL OF FAME ---
-        st.markdown("### 👤 Spieler-Profil & Hall of Fame")
-        
-        # EXPLICITE Liste der erlaubten Spieler (Alphabetisch sortiert für bessere UX)
-        # WICHTIG: Schreibweise muss exakt mit den Eingaben übereinstimmen!
-        all_players = sorted(["Alex", "Dani", "Domi", "Fabi", "Lüxn", "Schirgi", "Tobi"])
-        
-        # UI: Dropdown zur Auswahl
-        default_idx = 0
-        
-        # Wir versuchen, den aktuellen Top-Gewinner vorzuwählen
-        # (Aber nur, wenn es einer unserer 7 Jungs ist)
-        if not lb.empty:
-            for _, row in lb.iterrows():
-                candidate = row["Name"]
-                if candidate in all_players:
-                    default_idx = all_players.index(candidate)
-                    break
-                
-        selected_player = st.selectbox("Wähle einen Spieler für Details:", all_players, index=default_idx)
 
-        if selected_player:
-            # Daten filtern
-            df_p = df[df["Name"] == selected_player].copy()
+    # --- HALL OF FAME / PROFIL ---
+    st.markdown("### 👤 Spieler-Profil & Hall of Fame")
+    
+    # Auswahl-Logik: Versuche den Top-Gewinner vorzuwählen
+    default_idx = 0
+    if not lb.empty:
+        top_winner = lb.iloc[0]["Name"]
+        if top_winner in VALID_PLAYERS:
+            default_idx = VALID_PLAYERS.index(top_winner)
             
-            if df_p.empty:
-                st.info(f"Noch keine Buchungen für {selected_player} gefunden.")
-            else:
-                df_p["Player_Profit"] = -df_p["Netto"]
-                
-                # 1. Sessions aggregieren (Pro Datum)
-                df_p["Date_Only"] = df_p["Full_Date"].dt.date
-                df_sessions = df_p.groupby("Date_Only")["Player_Profit"].sum().reset_index()
-                df_sessions.columns = ["Datum", "Player_Profit"]
-                
-                # KPIs berechnen
-                lifetime_profit = df_p["Player_Profit"].sum()
-                
-                # Sicherstellen, dass Sessions da sind
-                if not df_sessions.empty:
-                    best_session = df_sessions["Player_Profit"].max()
-                    worst_session = df_sessions["Player_Profit"].min()
-                    best_date = df_sessions.loc[df_sessions["Player_Profit"].idxmax(), "Datum"].strftime("%d.%m.")
-                    worst_date = df_sessions.loc[df_sessions["Player_Profit"].idxmin(), "Datum"].strftime("%d.%m.")
-                else:
-                    best_session, worst_session = 0, 0
-                    best_date, worst_date = "-", "-"
+    selected_player = st.selectbox("Wähle einen Spieler für Details:", VALID_PLAYERS, index=default_idx)
 
-                # Badges Logik
-                badges = []
-                if lifetime_profit > 50: badges.append("🦈 Bank-Hai")
-                if lifetime_profit < -50: badges.append("💸 Sponsor")
-                if best_session > 100: badges.append("🚀 To The Moon")
-                if worst_session < -100: badges.append("📉 Rekt")
-                
-                count_plus = (df_sessions["Player_Profit"] > 0).sum()
-                count_minus = (df_sessions["Player_Profit"] < 0).sum()
-                if count_minus > count_plus + 3: badges.append("💀 Pechvogel")
-
-                # UI Darstellung
-                st.markdown(f"### {selected_player} {' '.join(badges)}")
-                
-                kpi1, kpi2, kpi3 = st.columns(3)
-                kpi1.metric("Lifetime Profit", f"{lifetime_profit:+.2f} €")
-                kpi2.metric("Bester Abend", f"{best_session:+.2f} €", help=f"Am {best_date}")
-                kpi3.metric("Schlimmster Abend", f"{worst_session:+.2f} €", help=f"Am {worst_date}")
-                
-                # Graph: Timeline
-                st.caption("Verlauf der Abende (Gewinn/Verlust pro Session)")
-                if not df_sessions.empty:
-                    df_sessions["Color"] = df_sessions["Player_Profit"].apply(lambda x: '#66BB6A' if x >= 0 else '#EF5350')
-                    fig_p = px.bar(df_sessions, x="Datum", y="Player_Profit", text="Player_Profit")
-                    fig_p.update_traces(marker_color=df_sessions["Color"], texttemplate='%{text:+.0f}', textposition='outside')
-                    fig_p.update_layout(yaxis_title="Gewinn €", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig_p, use_container_width=True)
-
-
-# --- 💸 TAGESABSCHLUSS & QR CODES (Nur aktuelle Session) ---
-st.markdown("---")
-with st.expander("💸 Tagesabschluss & Abrechnung (Heute/Gestern)", expanded=False):
-    
-    # 1. Bankdaten laden
-    secrets_iban = st.secrets.get("bank", {}).get("iban", "")
-    secrets_owner = st.secrets.get("bank", {}).get("owner", "")
-    
-    if secrets_iban:
-        iban_to_use = secrets_iban
-        owner_to_use = secrets_owner
-        st.success(f"Empfängerkonto geladen: {owner_to_use}")
-    else:
-        st.warning("Keine Bankdaten in secrets.toml gefunden.")
-        c_iban, c_owner = st.columns(2)
-        iban_to_use = c_iban.text_input("IBAN", value="")
-        owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
-
-    # 2. Daten filtern: Nur Heute & Gestern UND nur die 7 Namen
-    today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
-    
-    # Relevante Namen
-    valid_players = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"]
-
-    # Filtermaske erstellen
-    mask_date = df["Full_Date"].dt.date.isin([today, yesterday])
-    mask_name = df["Name"].isin(valid_players)
-    
-    # Gefiltertes DataFrame für die Abrechnung
-    df_session = df[mask_date & mask_name].copy()
-
-    if df_session.empty:
-        st.info("Keine Buchungen für Heute oder Gestern gefunden.")
-    
-    else:
-        # 3. Saldo berechnen (Wer steht wie in dieser Session?)
-        # Netto in DB: + ist Einzahlung (Verlust), - ist Auszahlung (Gewinn)
-        # Für Spieler-Sicht müssen wir das Vorzeichen umdrehen:
-        # Einzahlung (100) -> Netto +100 -> Spieler Saldo -100
-        session_balance = df_session.groupby("Name")["Netto"].sum().mul(-1)
+    if selected_player:
+        df_p = df[df["Name"] == selected_player].copy()
         
-        # Wer ist im Minus? (Verlierer müssen zahlen)
-        # Wir filtern alles kleiner als -0.01 (wegen Rundungsfehlern bei Float)
-        losers = session_balance[session_balance < -0.01]
-
-        if losers.empty:
-            st.balloons()
-            st.success("Alles ausgeglichen oder alle haben gewonnen! 🎉")
+        if df_p.empty:
+            st.info(f"Noch keine Buchungen für {selected_player} gefunden.")
         else:
-            st.write("Wähle die Person aus, die bezahlen möchte:")
+            # Profit aus Spielersicht: -Netto (weil Netto = Banksicht)
+            df_p["Player_Profit"] = -df_p["Netto"]
+            df_p["Date_Only"] = df_p["Full_Date"].dt.date
             
-            # Dropdown Menü für Spieler erstellen
-            # losers.items() gibt (Name, Betrag) zurück
-            options = {f"{name} (Schuldet {abs(amount):.2f} €)": (name, abs(amount)) for name, amount in losers.items()}
+            # Gruppieren pro Abend (Session)
+            df_sessions = df_p.groupby("Date_Only")["Player_Profit"].sum().reset_index()
             
-            selected_option_key = st.selectbox("Zahlungspflichtiger Spieler:", options.keys())
+            lifetime_profit = df_p["Player_Profit"].sum()
             
-            if selected_option_key and iban_to_use:
-                player_name, pay_amount = options[selected_option_key]
+            if not df_sessions.empty:
+                best_session = df_sessions["Player_Profit"].max()
+                worst_session = df_sessions["Player_Profit"].min()
+                best_date = df_sessions.loc[df_sessions["Player_Profit"].idxmax(), "Date_Only"].strftime("%d.%m.%y")
+                worst_date = df_sessions.loc[df_sessions["Player_Profit"].idxmin(), "Date_Only"].strftime("%d.%m.%y")
+            else:
+                best_session, worst_session = 0, 0
+                best_date, worst_date = "-", "-"
+
+            # Badges
+            badges = []
+            if lifetime_profit > 50: badges.append("🦈 Hai")
+            if lifetime_profit < -50: badges.append("💸 Sponsor")
+            if best_session > 100: badges.append("🚀 Moon")
+            if worst_session < -100: badges.append("📉 Rekt")
+
+            st.markdown(f"**{selected_player}** {' '.join(badges)}")
+            
+            col_p1, col_p2, col_p3 = st.columns(3)
+            col_p1.metric("Lifetime", f"{lifetime_profit:+.2f} €")
+            col_p2.metric("Best", f"{best_session:+.2f} €", help=f"Datum: {best_date}")
+            col_p3.metric("Worst", f"{worst_session:+.2f} €", help=f"Datum: {worst_date}")
+            
+            if not df_sessions.empty:
+                df_sessions["Color"] = df_sessions["Player_Profit"].apply(lambda x: '#66BB6A' if x >= 0 else '#EF5350')
+                fig_p = px.bar(df_sessions, x="Date_Only", y="Player_Profit", text="Player_Profit")
+                fig_p.update_traces(marker_color=df_sessions["Color"], texttemplate='%{text:+.0f}', textposition='outside')
+                fig_p.update_layout(yaxis_title="Ergebnis €", xaxis_title="", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_p, use_container_width=True)
+
+    # --- TAGESABSCHLUSS (QR CODES) ---
+    st.markdown("---")
+    with st.expander("💸 Tagesabschluss & Abrechnung (Heute/Gestern)", expanded=False):
+        
+        # 1. Bankdaten laden
+        secrets_iban = st.secrets.get("bank", {}).get("iban", "")
+        secrets_owner = st.secrets.get("bank", {}).get("owner", "")
+        
+        if secrets_iban:
+            iban_to_use = secrets_iban
+            owner_to_use = secrets_owner
+            st.success(f"Konto geladen: {owner_to_use}")
+        else:
+            st.warning("Keine Bankdaten in secrets.toml.")
+            c_iban, c_owner = st.columns(2)
+            iban_to_use = c_iban.text_input("IBAN", value="")
+            owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
+
+        # 2. Filter: Nur Heute & Gestern UND nur gültige Spieler
+        mask_date = df["Full_Date"].dt.date.isin([today, yesterday])
+        mask_name = df["Name"].isin(VALID_PLAYERS)
+        
+        df_session = df[mask_date & mask_name].copy()
+
+        if df_session.empty:
+            st.info("Keine offenen Sessions für Heute oder Gestern.")
+        else:
+            # Saldo berechnen: Einzahlung (+Netto) ist schlecht für Spieler -> mal -1
+            session_balance = df_session.groupby("Name")["Netto"].sum().mul(-1)
+            
+            # Nur Verlierer (Saldo < 0) müssen zahlen
+            losers = session_balance[session_balance < -0.01]
+
+            if losers.empty:
+                st.balloons()
+                st.success("Niemand hat Schulden! 🎉")
+            else:
+                st.write("Wähle, wer bezahlen will:")
                 
-                # QR Code URL generieren
-                qr_url = generate_epc_qr_url(
-                    name=owner_to_use,
-                    iban=iban_to_use,
-                    amount=pay_amount,
-                    purpose=f"Blackjack {player_name}"
-                )
+                # Dropdown: Name + Betrag
+                options = {f"{name} (Schuldet {abs(amount):.2f} €)": (name, abs(amount)) for name, amount in losers.items()}
+                selected_key = st.selectbox("Zahlungspflichtiger:", options.keys())
                 
-                # Layout für den QR Code
-                col_spacer1, col_qr, col_spacer2 = st.columns([1, 2, 1])
-                with col_qr:
-                    st.image(qr_url, caption=f"GiroCode für {player_name}", width=300)
-                    st.info(f"📱 Bitte Banking-App öffnen und scannen.\nBetrag: {pay_amount:.2f} €")
+                if selected_key and iban_to_use:
+                    p_name, p_amount = options[selected_key]
+                    
+                    qr_url = generate_epc_qr_url(owner_to_use, iban_to_use, p_amount, f"Blackjack {p_name}")
+                    
+                    col_spacer, col_qr, col_spacer2 = st.columns([1, 2, 1])
+                    with col_qr:
+                        st.image(qr_url, caption=f"Scan mich ({p_name})", width=300)
+                        st.info(f"📱 {p_amount:.2f} € an {owner_to_use}")
 
 else:
-    st.info("Datenbank leer. Buche etwas, um zu starten!")
+    # Falls DB komplett leer ist
+    st.info("Datenbank ist leer. Buche etwas, um zu starten!")
