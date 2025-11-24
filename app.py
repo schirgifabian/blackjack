@@ -213,20 +213,6 @@ if not df.empty:
             start_date = d_range[0]
             df_stats = df_stats[df_stats["Full_Date"].dt.date == start_date]
 
-    # 2. Bank Filter (Logik bleibt gleich)
-    if hide_bank:
-        df_display = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False, na=False)]
-    else:
-        df_display = df_stats
-
-    if df_stats.empty:
-        st.info(f"Keine Daten im gewählten Zeitraum gefunden.")
-    else:
-        # ... (Hier geht dein bestehender Code weiter: Verlauf berechnen, KPI, Tabs etc.)
-        df_display = df_display.sort_values(by="Full_Date", ascending=True)
-        # ...
-
-
     # 2. Bank Filter (Für Anzeige im Graphen/Liste)
     if hide_bank:
         df_display = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False, na=False)]
@@ -287,18 +273,36 @@ if not df.empty:
 
         with tab_list:
              st.dataframe(df_display[["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"]].sort_index(ascending=False), use_container_width=True, hide_index=True)
-        # --- FEATURE: SPIELER-DETAILSEITE ---
+        # --- FEATURE: SPIELER-DETAILSEITE & HALL OF FAME ---
         st.markdown("### 👤 Spieler-Profil & Hall of Fame")
         
-        # Liste aller Spieler holen, sortiert nach Alphabet
-        all_players = sorted(df["Name"].unique().tolist())
+        # Namen aus der Datenbank holen
+        all_names_in_db = df["Name"].unique().tolist()
+
+        # OPTION A: Blacklist (Alles rausfiltern, was kein Spieler ist)
+        # Hier trägst du Wörter ein, die ignoriert werden sollen:
+        ignored_names = ["Mischmaschine", "Bank", "Kasse", "Initial", "Admin"]
         
-        # UI: Dropdown zur Auswahl (Standard: Top-Gewinner falls vorhanden, sonst erster Name)
+        all_players = sorted([
+            name for name in all_names_in_db 
+            if name not in ignored_names and name is not None
+        ])
+        
+        # OPTION B: Whitelist (Falls du NUR feste Namen zulassen willst)
+        # Wenn du Option B nutzen willst, entferne das # vor der nächsten Zeile:
+        # all_players = sorted(["Max", "Anna", "Tom", "Lisa"]) # <-- Hier deine 7 Namen eintragen
+
+        # UI: Dropdown zur Auswahl
         default_idx = 0
+        
+        # Wir versuchen, den aktuellen Top-Gewinner vorzuwählen
         if not lb.empty:
-            top_winner = lb.iloc[0]["Name"]
-            if top_winner in all_players:
-                default_idx = all_players.index(top_winner)
+            # Suche den ersten Namen aus der Rangliste, der auch in unserer "Echten Spieler"-Liste ist
+            for _, row in lb.iterrows():
+                potential_winner = row["Name"]
+                if potential_winner in all_players:
+                    default_idx = all_players.index(potential_winner)
+                    break
                 
         selected_player = st.selectbox("Wähle einen Spieler für Details:", all_players, index=default_idx)
 
