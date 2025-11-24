@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, timedelta
 import pytz
+import requests
 import urllib.parse
 
 # --- KONFIGURATION ---
@@ -18,10 +19,39 @@ hide_streamlit_style = """
             .stApp { background-color: white; }
             div[data-testid="stDataFrame"] { font-family: monospace; }
             div[data-testid="stMetricValue"] { font-size: 24px; }
-            div[data-testid="stCheckbox"] { padding-top: 2rem; } 
+            div[data-testid="stCheckbox"] { padding-top: 1rem; } 
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# --- HELPER: GIROCODE GENERATOR ---
+def generate_epc_qr_url(name, iban, amount, purpose):
+    iban_clean = iban.replace(" ", "").upper()
+    amount_str = f"EUR{amount:.2f}"
+    # EPC-QR-Standard Formatierung
+    epc_data = f"""BCD
+002
+1
+SCT
+
+{name}
+{iban_clean}
+{amount_str}
+
+
+{purpose}
+"""
+    data_encoded = urllib.parse.quote(epc_data)
+    return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={data_encoded}"
+
+# --- HELPER: NETTO BERECHNUNG ---
+def berechne_netto(row):
+    betrag = row["Betrag"]
+    aktion = str(row["Aktion"]).lower()
+    # Ausgaben und Auszahlungen verringern den Bankbestand
+    if ("ausgabe" in aktion or "auszahlung" in aktion) and betrag > 0:
+        return -betrag
+    return betrag
 
 # --- TITEL ---
 st.title("♠️ Blackjack Bank")
@@ -43,162 +73,237 @@ except Exception:
     df = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"])
 
 if not df.empty:
-    # Bereinigung
+    # Bereinigung: Kommas zu Punkten, Zahlenformat
     df["Betrag"] = df["Betrag"].astype(str).str.replace(',', '.', regex=False)
     df["Betrag"] = pd.to_numeric(df["Betrag"], errors='coerce').fillna(0)
     
-    # Datum parsen und Zeitzonenfehler beheben
+    # Datum parsen (Robustheit verbessert)
     df['Full_Date'] = pd.to_datetime(df['Datum'] + ' ' + df['Zeitstempel'].fillna('00:00'), format='%d.%m.%Y %H:%M', errors='coerce')
+    # Fallback falls Zeit fehlt
     df['Full_Date'] = df['Full_Date'].fillna(pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce'))
 
-# --- HELPER: GIROCODE GENERATOR ---
-def generate_epc_qr_url(name, iban, amount, purpose):
-    iban_clean = iban.replace(" ", "").upper()
-    amount_str = f"EUR{amount:.2f}"
-    epc_data = f"""BCD
-002
-1
-SCT
-
-{name}
-{iban_clean}
-{amount_str}
-
-
-{purpose}
-"""
-    data_encoded = urllib.parse.quote(epc_data)
-    return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={data_encoded}"
-
-# --- NETTO BERECHNUNG ---
-def berechne_netto(row):
-    betrag = row["Betrag"]
-    aktion = str(row["Aktion"]).lower()
-    if ("ausgabe" in aktion or "auszahlung" in aktion):
-        return -betrag
-    return betrag
-
-# --- UI: FILTERBEREICH ---
-st.divider()
-col_filter, col_check = st.columns([3, 1])
-
-with col_filter:
-    zeitraum = st.selectbox("Zeitraum wählen:", ["Aktuelle Session", "Alles"], index=0)
-
-with col_check:
-    exclude_bank = st.checkbox("Bank ausbl.")
-
-# --- DATEN FILTERN ---
-now = datetime.now(pytz.timezone('Europe/Berlin'))
-df_stats = df.copy()
-
-if zeitraum == "Aktuelle Session":
-    today_start_aware = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    # WICHTIG: tzinfo=None verhindert den Vergleichsfehler
-    start_limit = (today_start_aware - timedelta(days=1)).replace(tzinfo=None)
-    df_stats = df_stats[df_stats['Full_Date'] >= start_limit]
-
-# --- KPI LOGIK ---
-if exclude_bank:
-    df_stats = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)]
-
-df_stats["Netto"] = df_stats.apply(berechne_netto, axis=1)
-df_stats = df_stats.sort_values("Full_Date")
-df_stats["Bankverlauf"] = df_stats["Netto"].cumsum()
-
-if not df_stats.empty:
-    chips_in = df_stats[df_stats["Aktion"].str.contains("Einzahlung", case=False, na=False)]["Betrag"].sum()
-    chips_out = df_stats[df_stats["Aktion"].str.contains("Auszahlung", case=False, na=False)]["Betrag"].sum()
-    delta_bank = chips_in - chips_out
-
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Chips gekauft", f"{chips_in:,.0f} €")
-    kpi2.metric("Chips ausgezahlt", f"{chips_out:,.0f} €")
-    kpi3.metric("Bankstand (Netto)", f"{delta_bank:,.2f} €", delta_color="normal")
-
-    tab_bilanz, tab_verlauf, tab_list = st.tabs(["🏆 Spieler", "📈 Verlauf", "📝 Liste"])
-
-    # Profite berechnen
-    df_players_only = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)].copy()
+    # Netto berechnen
+    df["Netto"] = df.apply(berechne_netto, axis=1)
     
-    def get_profit(x):
-        ein = x[x["Aktion"].str.contains("Einzahlung")]["Betrag"].sum()
-        aus = x[x["Aktion"].str.contains("Auszahlung")]["Betrag"].sum()
-        return aus - ein 
-
-    game_data_exists = not df_players_only.empty
-    lb = pd.DataFrame()
-
-    if game_data_exists:
-        lb = df_players_only.groupby("Name").apply(get_profit).reset_index(name="Profit").sort_values("Profit", ascending=False)
-
-    with tab_bilanz:
-        if not lb.empty:
-            lb["Color"] = lb["Profit"].apply(lambda x: '#2E7D32' if x >= 0 else '#C62828')
-            fig = px.bar(lb, x="Profit", y="Name", orientation='h', text="Profit", title="Gewinn/Verlust pro Spieler")
-            fig.update_traces(marker_color=lb["Color"], texttemplate='%{text:+.2f} €', textposition='outside')
-            fig.update_layout(xaxis_title="Gewinn", paper_bgcolor='white', plot_bgcolor='white', font_color='black')
-            st.plotly_chart(fig, use_container_width=True)
-        else: st.info("Keine Spielerdaten.")
-
-    with tab_verlauf:
-        fig_line = px.line(df_stats, x="Full_Date", y="Bankverlauf", title="Entwicklung Bankbestand", line_shape='hv')
-        fig_line.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black', yaxis_title="Kontostand €")
-        fig_line.update_traces(line_color='black', line_width=3)
-        st.plotly_chart(fig_line, use_container_width=True)
-
-    with tab_list:
-            st.dataframe(df_stats[["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"]].sort_index(ascending=False), use_container_width=True, hide_index=True)
-
-    # --- TAGESABSCHLUSS (SAFE QR CODES) ---
-    st.markdown("---")
-    with st.expander("💸 Tagesabschluss & Abrechnung", expanded=False):
-        
-        secrets_iban = st.secrets.get("bank", {}).get("iban", "")
-        secrets_owner = st.secrets.get("bank", {}).get("owner", "")
-        
-        if secrets_iban:
-            iban_to_use = secrets_iban
-            owner_to_use = secrets_owner
-            st.success(f"Empfängerkonto: {owner_to_use}")
-        else:
-            st.warning("Keine Bankdaten konfiguriert.")
-            c_iban, c_owner = st.columns(2)
-            iban_to_use = c_iban.text_input("IBAN", value="")
-            owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
-
-        if iban_to_use and not lb.empty:
-            losers = lb[lb["Profit"] < 0].copy()
-            
-            if losers.empty:
-                st.balloons()
-                st.success("Keine offenen Schulden! Die Bank hat gewonnen oder alle sind 'break even'.")
-            else:
-                st.write("Wähle die Person aus, die bezahlen möchte:")
-                
-                # Dictionary erstellen für das Dropdown: "Name (Betrag)" -> Daten
-                options = {f"{row['Name']} (Schuldet {abs(row['Profit']):.2f} €)": row for _, row in losers.iterrows()}
-                
-                selected_option = st.selectbox("Zahlungspflichtiger Spieler:", options.keys())
-                
-                if selected_option:
-                    # Daten des gewählten Spielers holen
-                    selected_row = options[selected_option]
-                    pay_amount = abs(selected_row["Profit"])
-                    player_name = selected_row["Name"]
-                    
-                    qr_url = generate_epc_qr_url(
-                        name=owner_to_use,
-                        iban=iban_to_use,
-                        amount=pay_amount,
-                        purpose="Spieleabend"
-                    )
-                    
-                    # QR Code zentriert anzeigen
-                    col_spacer1, col_qr, col_spacer2 = st.columns([1, 2, 1])
-                    with col_qr:
-                        st.image(qr_url, caption=f"GiroCode für {player_name}", width=300)
-                        st.info(f"📱 Bitte Banking-App öffnen und scannen.\nBetrag: {pay_amount:.2f} €")
-
+    # Sortieren
+    df = df.sort_values(by="Full_Date", ascending=True).reset_index(drop=True)
+    kontostand = df["Netto"].sum()
 else:
-    st.info("Datenbank leer.")
+    kontostand = 0.0
+
+# --- HEADER (KONTOSTAND) ---
+color = "black" if kontostand >= 0 else "red"
+# Großes Display des Kontostands
+st.markdown(f"<h1 style='text-align: center; font-size: 80px; color: {color};'>{kontostand:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".") + "</h1>", unsafe_allow_html=True)
+
+# Refresh Button
+col_btn1, col_btn2 = st.columns([1, 4]) 
+if st.button("🔄", help="Aktualisieren", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
+
+st.divider()
+
+# --- BUCHEN (HAUPTFUNKTION) ---
+with st.expander("➕ Neue Buchung", expanded=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        namen_liste = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi", "Manuelle Ausgabe 📝"]
+        auswahl_name = st.selectbox("Name", namen_liste)
+        final_name = auswahl_name
+        if auswahl_name == "Manuelle Ausgabe 📝":
+            custom_input = st.text_input("Zweck", placeholder="Pizza / Bier")
+            if custom_input: final_name = custom_input
+
+    with col2:
+        betrag_input = st.number_input("Betrag €", min_value=0.00, value=10.00, step=5.00, format="%.2f")
+
+    aktion_auswahl = st.radio("Typ", [
+        "Einzahlung (Spieler kauft Chips) [+]", 
+        "Auszahlung (Spieler tauscht zurück) [-]",
+        "Bank Einnahme (Roulette/Sonstiges) [+]",
+        "Bank Ausgabe (Ausgaben) [-]"
+    ])
+
+    if st.button("Buchen ✅", type="primary", use_container_width=True):
+        typ_short = aktion_auswahl.split(" (")[0]
+        tz = pytz.timezone('Europe/Berlin')
+        now = datetime.now(tz)
+        
+        neuer_eintrag = pd.DataFrame([{
+            "Datum": now.strftime("%d.%m.%Y"),
+            "Zeit": now.strftime("%H:%M"),
+            "Spieler": final_name,
+            "Typ": typ_short,
+            "Betrag": betrag_input
+        }])
+        
+        try:
+            # Daten neu laden um Konflikte zu vermeiden
+            df_raw = conn.read(worksheet="Buchungen", ttl=0)
+            updated_df = pd.concat([df_raw, neuer_eintrag], ignore_index=True)
+            conn.update(worksheet="Buchungen", data=updated_df)
+            
+            # Ntfy Logik (Benachrichtigung aufs Handy)
+            if "Bank" in typ_short:
+                try:
+                    ntfy_topic = "bj-boys-dashboard"
+                    if "Einnahme" in typ_short:
+                        title, tags, msg = "🤑 Bank Einnahme", "moneybag,up", f"Plus: {betrag_input:.2f} €\nGrund: {final_name}"
+                    else:
+                        title, tags, msg = "💸 Bank Ausgabe", "chart_with_downwards_trend,down", f"Minus: {betrag_input:.2f} €\nZweck: {final_name}"
+                    requests.post(f"https://ntfy.sh/{ntfy_topic}", data=msg.encode('utf-8'), headers={"Title": title.encode('utf-8'), "Tags": tags})
+                except: pass
+
+            st.success(f"Gebucht: {final_name}")
+            st.cache_data.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Fehler: {e}")
+
+st.divider()
+
+# --- ANALYSE & STATISTIK ---
+st.subheader("📊 Statistik")
+
+if not df.empty:
+    # --- FILTER BEREICH ---
+    filter_col1, filter_col2 = st.columns([2.5, 1])
+    
+    with filter_col1:
+        # Fallback falls st.pills in deiner Version nicht geht
+        try:
+            zeitraum = st.pills("Zeitraum", ["Aktuelle Session", "Gesamt", "Dieser Monat"], default="Aktuelle Session")
+        except AttributeError:
+            zeitraum = st.selectbox("Zeitraum", ["Aktuelle Session", "Gesamt", "Dieser Monat"], index=0)
+    
+    with filter_col2:
+        st.write("") 
+        st.write("") 
+        hide_bank = st.checkbox("Bank ausblenden", value=False)
+    
+    df_stats = df.copy()
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    
+    # 1. Datum Filter
+    if zeitraum == "Aktuelle Session":
+        # Zeigt Heute und Gestern (falls Session über Mitternacht geht)
+        df_stats = df_stats[df_stats["Full_Date"].dt.date.isin([today, yesterday])]
+    elif zeitraum == "Dieser Monat":
+        df_stats = df_stats[(df_stats["Full_Date"].dt.month == today.month) & (df_stats["Full_Date"].dt.year == today.year)]
+
+    # 2. Bank Filter (Für Anzeige im Graphen/Liste)
+    if hide_bank:
+        df_display = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False, na=False)]
+    else:
+        df_display = df_stats
+
+    if df_stats.empty:
+        st.info(f"Keine Daten für Filter: '{zeitraum}'.")
+    else:
+        # Verlauf NEU berechnen für Anzeige
+        df_display = df_display.sort_values(by="Full_Date", ascending=True)
+        df_display["Bankverlauf"] = df_display["Netto"].cumsum()
+        
+        # KPI BERECHNUNG
+        delta_bank = df_display["Netto"].sum()
+        chips_in = df_stats[df_stats["Aktion"].str.contains("Einzahlung", case=False, na=False)]["Betrag"].sum()
+        chips_out = df_stats[df_stats["Aktion"].str.contains("Auszahlung", case=False, na=False)]["Betrag"].sum()
+
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("Chips gekauft", f"{chips_in:,.0f} €")
+        kpi2.metric("Chips ausgezahlt", f"{chips_out:,.0f} €")
+        kpi3.metric("Bank Gewinn/Verlust", f"{delta_bank:,.2f} €", delta_color="normal")
+
+        tab_bilanz, tab_verlauf, tab_list = st.tabs(["🏆 Spieler", "📈 Bank-Verlauf", "📝 Liste"])
+
+        # Spieler Profit Berechnung (unabhängig vom Bank-Filter)
+        df_players_only = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)].copy()
+        
+        if not df_players_only.empty:
+            def get_profit(x):
+                ein = x[x["Aktion"].str.contains("Einzahlung")]["Betrag"].sum()
+                aus = x[x["Aktion"].str.contains("Auszahlung")]["Betrag"].sum()
+                return aus - ein
+            
+            lb = df_players_only.groupby("Name").apply(get_profit).reset_index(name="Profit").sort_values("Profit", ascending=False)
+        else:
+            lb = pd.DataFrame()
+
+        with tab_bilanz:
+            if not lb.empty:
+                lb["Color"] = lb["Profit"].apply(lambda x: '#2E7D32' if x >= 0 else '#C62828')
+                fig = px.bar(lb, x="Profit", y="Name", orientation='h', text="Profit", title="Gewinn/Verlust pro Spieler")
+                fig.update_traces(marker_color=lb["Color"], texttemplate='%{text:+.2f} €', textposition='outside')
+                fig.update_layout(xaxis_title="Gewinn", paper_bgcolor='white', plot_bgcolor='white', font_color='black')
+                st.plotly_chart(fig, use_container_width=True)
+            else: 
+                st.info("Keine Spielerdaten im gewählten Zeitraum.")
+
+        with tab_verlauf:
+            if len(df_display) > 0:
+                fig_line = px.line(df_display, x="Full_Date", y="Bankverlauf", 
+                                   title="Entwicklung Bankbestand",
+                                   line_shape='hv')
+                fig_line.update_layout(paper_bgcolor='white', plot_bgcolor='white', font_color='black', yaxis_title="Kontostand €")
+                fig_line.update_traces(line_color='black', line_width=3)
+                st.plotly_chart(fig_line, use_container_width=True)
+            else: st.info("Zu wenig Daten.")
+
+        with tab_list:
+             st.dataframe(df_display[["Datum", "Zeitstempel", "Name", "Aktion", "Betrag"]].sort_index(ascending=False), use_container_width=True, hide_index=True)
+
+        # --- TAGESABSCHLUSS & QR CODES ---
+        st.markdown("---")
+        with st.expander("💸 Tagesabschluss & Abrechnung", expanded=False):
+            
+            # Daten aus Secrets laden
+            secrets_iban = st.secrets.get("bank", {}).get("iban", "")
+            secrets_owner = st.secrets.get("bank", {}).get("owner", "")
+            
+            if secrets_iban:
+                iban_to_use = secrets_iban
+                owner_to_use = secrets_owner
+                st.success(f"Empfängerkonto geladen: {owner_to_use}")
+            else:
+                st.warning("Keine Bankdaten in secrets.toml.")
+                c_iban, c_owner = st.columns(2)
+                iban_to_use = c_iban.text_input("IBAN", value="")
+                owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
+
+            # Nur Verlierer müssen zahlen
+            if iban_to_use and not lb.empty:
+                losers = lb[lb["Profit"] < 0].copy()
+                
+                if losers.empty:
+                    st.balloons()
+                    st.success("Keine offenen Schulden! 🎉")
+                else:
+                    st.write("Wähle die Person aus, die bezahlen möchte:")
+                    
+                    # Dropdown Menü für Spieler
+                    # Key ist der angezeigte Text, Value ist die Zeile mit den Daten
+                    options = {f"{row['Name']} (Schuldet {abs(row['Profit']):.2f} €)": row for _, row in losers.iterrows()}
+                    
+                    selected_option = st.selectbox("Zahlungspflichtiger Spieler:", options.keys())
+                    
+                    if selected_option:
+                        selected_row = options[selected_option]
+                        pay_amount = abs(selected_row["Profit"])
+                        player_name = selected_row["Name"]
+                        
+                        qr_url = generate_epc_qr_url(
+                            name=owner_to_use,
+                            iban=iban_to_use,
+                            amount=pay_amount,
+                            purpose="Spieleabend"
+                        )
+                        
+                        # Layout für den QR Code
+                        col_spacer1, col_qr, col_spacer2 = st.columns([1, 2, 1])
+                        with col_qr:
+                            st.image(qr_url, caption=f"GiroCode für {player_name}", width=300)
+                            st.info(f"📱 Bitte Banking-App öffnen und scannen.\nBetrag: {pay_amount:.2f} €")
+else:
+    st.info("Datenbank leer. Buche etwas, um zu starten!")
