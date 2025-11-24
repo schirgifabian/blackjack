@@ -350,56 +350,80 @@ if not df.empty:
                     st.plotly_chart(fig_p, use_container_width=True)
 
 
-        # --- TAGESABSCHLUSS & QR CODES ---
-        st.markdown("---")
-        with st.expander("💸 Tagesabschluss & Abrechnung", expanded=False):
-            
-            # Daten aus Secrets laden
-            secrets_iban = st.secrets.get("bank", {}).get("iban", "")
-            secrets_owner = st.secrets.get("bank", {}).get("owner", "")
-            
-            if secrets_iban:
-                iban_to_use = secrets_iban
-                owner_to_use = secrets_owner
-                st.success(f"Empfängerkonto geladen: {owner_to_use}")
-            else:
-                st.warning("Keine Bankdaten in secrets.toml.")
-                c_iban, c_owner = st.columns(2)
-                iban_to_use = c_iban.text_input("IBAN", value="")
-                owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
+# --- 💸 TAGESABSCHLUSS & QR CODES (Nur aktuelle Session) ---
+st.markdown("---")
+with st.expander("💸 Tagesabschluss & Abrechnung (Heute/Gestern)", expanded=False):
+    
+    # 1. Bankdaten laden
+    secrets_iban = st.secrets.get("bank", {}).get("iban", "")
+    secrets_owner = st.secrets.get("bank", {}).get("owner", "")
+    
+    if secrets_iban:
+        iban_to_use = secrets_iban
+        owner_to_use = secrets_owner
+        st.success(f"Empfängerkonto geladen: {owner_to_use}")
+    else:
+        st.warning("Keine Bankdaten in secrets.toml gefunden.")
+        c_iban, c_owner = st.columns(2)
+        iban_to_use = c_iban.text_input("IBAN", value="")
+        owner_to_use = c_owner.text_input("Inhaber", value="Blackjack Kasse")
 
-            # Nur Verlierer müssen zahlen
-            if iban_to_use and not lb.empty:
-                losers = lb[lb["Profit"] < 0].copy()
+    # 2. Daten filtern: Nur Heute & Gestern UND nur die 7 Namen
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    
+    # Relevante Namen
+    valid_players = ["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"]
+
+    # Filtermaske erstellen
+    mask_date = df["Full_Date"].dt.date.isin([today, yesterday])
+    mask_name = df["Name"].isin(valid_players)
+    
+    # Gefiltertes DataFrame für die Abrechnung
+    df_session = df[mask_date & mask_name].copy()
+
+    if df_session.empty:
+        st.info("Keine Buchungen für Heute oder Gestern gefunden.")
+    
+    else:
+        # 3. Saldo berechnen (Wer steht wie in dieser Session?)
+        # Netto in DB: + ist Einzahlung (Verlust), - ist Auszahlung (Gewinn)
+        # Für Spieler-Sicht müssen wir das Vorzeichen umdrehen:
+        # Einzahlung (100) -> Netto +100 -> Spieler Saldo -100
+        session_balance = df_session.groupby("Name")["Netto"].sum().mul(-1)
+        
+        # Wer ist im Minus? (Verlierer müssen zahlen)
+        # Wir filtern alles kleiner als -0.01 (wegen Rundungsfehlern bei Float)
+        losers = session_balance[session_balance < -0.01]
+
+        if losers.empty:
+            st.balloons()
+            st.success("Alles ausgeglichen oder alle haben gewonnen! 🎉")
+        else:
+            st.write("Wähle die Person aus, die bezahlen möchte:")
+            
+            # Dropdown Menü für Spieler erstellen
+            # losers.items() gibt (Name, Betrag) zurück
+            options = {f"{name} (Schuldet {abs(amount):.2f} €)": (name, abs(amount)) for name, amount in losers.items()}
+            
+            selected_option_key = st.selectbox("Zahlungspflichtiger Spieler:", options.keys())
+            
+            if selected_option_key and iban_to_use:
+                player_name, pay_amount = options[selected_option_key]
                 
-                if losers.empty:
-                    st.balloons()
-                    st.success("Keine offenen Schulden! 🎉")
-                else:
-                    st.write("Wähle die Person aus, die bezahlen möchte:")
-                    
-                    # Dropdown Menü für Spieler
-                    # Key ist der angezeigte Text, Value ist die Zeile mit den Daten
-                    options = {f"{row['Name']} (Schuldet {abs(row['Profit']):.2f} €)": row for _, row in losers.iterrows()}
-                    
-                    selected_option = st.selectbox("Zahlungspflichtiger Spieler:", options.keys())
-                    
-                    if selected_option:
-                        selected_row = options[selected_option]
-                        pay_amount = abs(selected_row["Profit"])
-                        player_name = selected_row["Name"]
-                        
-                        qr_url = generate_epc_qr_url(
-                            name=owner_to_use,
-                            iban=iban_to_use,
-                            amount=pay_amount,
-                            purpose="Spieleabend"
-                        )
-                        
-                        # Layout für den QR Code
-                        col_spacer1, col_qr, col_spacer2 = st.columns([1, 2, 1])
-                        with col_qr:
-                            st.image(qr_url, caption=f"GiroCode für {player_name}", width=300)
-                            st.info(f"📱 Bitte Banking-App öffnen und scannen.\nBetrag: {pay_amount:.2f} €")
+                # QR Code URL generieren
+                qr_url = generate_epc_qr_url(
+                    name=owner_to_use,
+                    iban=iban_to_use,
+                    amount=pay_amount,
+                    purpose=f"Blackjack {player_name}"
+                )
+                
+                # Layout für den QR Code
+                col_spacer1, col_qr, col_spacer2 = st.columns([1, 2, 1])
+                with col_qr:
+                    st.image(qr_url, caption=f"GiroCode für {player_name}", width=300)
+                    st.info(f"📱 Bitte Banking-App öffnen und scannen.\nBetrag: {pay_amount:.2f} €")
+
 else:
     st.info("Datenbank leer. Buche etwas, um zu starten!")
