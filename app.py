@@ -1,8 +1,10 @@
 import streamlit as st
+import extra_streamlit_components as stx   
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
+import datetime                            
+import time                                
 import pytz
 import requests
 import urllib.parse
