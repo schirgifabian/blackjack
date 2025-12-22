@@ -15,9 +15,12 @@ st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="cent
 VALID_PLAYERS = sorted(["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"])
 CHIP_VALUES = [5, 10, 20, 50, 100]
 
-# --- SESSION STATE SETUP (Fix für die Transaktions-Seite) ---
+# --- SESSION STATE SETUP ---
+# Wir initialisieren alle wichtigen States, damit nichts beim Neuladen verloren geht
 if 'trans_amount' not in st.session_state:
     st.session_state.trans_amount = 10.0
+if 'selected_player' not in st.session_state:
+    st.session_state.selected_player = VALID_PLAYERS[0]
 
 def set_amount(val):
     st.session_state.trans_amount = float(val)
@@ -73,7 +76,7 @@ st.markdown("""
         letter-spacing: -2px;
     }
     
-    /* CHIP BUTTONS STYLING (Streamlit Buttons hacken) */
+    /* CHIP BUTTONS STYLING */
     div[data-testid="column"] button {
         border-radius: 50%;
         height: 60px;
@@ -203,30 +206,35 @@ if page == "Übersicht":
                     </div>
                     """, unsafe_allow_html=True)
 
-# --- PAGE 2: QUICK TRANSACTION (FIXED) ---
+# --- PAGE 2: QUICK TRANSACTION (FIXED & ROBUST) ---
 elif page == "Transaktion":
     st.markdown("### 🎲 Quick Action")
     
     with st.container():
-        # 1. PLAYER
+        # 1. PLAYER SELECTION (State stabilisiert)
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.caption("SPIELER")
-        p_sel = st.pills("Name", VALID_PLAYERS + ["Sonstiges"], selection_mode="single", default=VALID_PLAYERS[0], label_visibility="collapsed")
-        final_name = st.text_input("Name/Zweck", placeholder="Pizza") if p_sel == "Sonstiges" else p_sel
+        
+        # Wichtig: key='player_select' sorgt dafür, dass die Auswahl beim Rerun bleibt
+        p_sel = st.pills("Name", VALID_PLAYERS + ["Sonstiges"], selection_mode="single", default=VALID_PLAYERS[0], key="player_select", label_visibility="collapsed")
+        
+        final_name = p_sel
+        if p_sel == "Sonstiges":
+            final_name = st.text_input("Name/Zweck", placeholder="Pizza / Bier / Name", key="custom_name_input")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 2. CHIP SELECTOR (Callback Logic - Fixed)
+        # 2. CHIP SELECTOR
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.caption("BETRAG WÄHLEN")
         
         # Chip Buttons Grid
         cols = st.columns(len(CHIP_VALUES))
         for i, val in enumerate(CHIP_VALUES):
-            # WICHTIG: on_click verwendet, um Session State sicher zu updaten
+            # Callback ändert den State, input widget updated sich beim nächsten Rerun
             cols[i].button(f"{val}", key=f"btn_{val}", on_click=set_amount, args=(val,), use_container_width=True)
 
         st.write("")
-        # Input Field linked to session_state key 'trans_amount'
+        # Number Input ist mit session_state 'trans_amount' verknüpft
         amount = st.number_input("Betrag (€)", key="trans_amount", step=5.0, format="%.2f", label_visibility="visible")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -236,62 +244,75 @@ elif page == "Transaktion":
         
         col_act1, col_act2 = st.columns(2)
         
-        # Init Variables
+        # Variablen initialisieren
+        action_triggered = False
         typ = None
         sign = 0
         
         with col_act1:
-            if st.button("📥 KAUFEN (Einzahlen)", type="secondary", use_container_width=True):
+            if st.button("📥 KAUFEN (Einzahlen)", type="primary", use_container_width=True):
                 typ, sign = "Einzahlung", 1
+                action_triggered = True
             if st.button("📈 BANK GEWINN", use_container_width=True):
                 typ, sign = "Bank Einnahme", 1
+                action_triggered = True
                 
         with col_act2:
-            if st.button("📤 TAUSCHEN (Auszahlen)", type="secondary", use_container_width=True):
+            if st.button("📤 TAUSCHEN (Auszahlen)", type="primary", use_container_width=True):
                 typ, sign = "Auszahlung", -1
+                action_triggered = True
             if st.button("💸 BANK VERLUST", use_container_width=True):
                 typ, sign = "Bank Ausgabe", -1
+                action_triggered = True
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # PROCESSING
-        if typ and final_name:
-            tz = pytz.timezone('Europe/Berlin')
-            now = datetime.now(tz)
-            
-            new_entry = pd.DataFrame([{
-                "Datum": now.strftime("%d.%m.%Y"),
-                "Zeit": now.strftime("%H:%M"),
-                "Spieler": final_name,
-                "Typ": typ,
-                "Betrag": amount
-            }])
-            
-            try:
-                raw = conn.read(worksheet="Buchungen", ttl=0)
-                conn.update(worksheet="Buchungen", data=pd.concat([raw, new_entry], ignore_index=True))
-                
-                # Notify
-                if "Bank" in typ:
+        # PROCESSING LOGIC
+        if action_triggered:
+            if not final_name:
+                st.error("⚠️ Bitte einen Namen wählen oder eingeben!")
+            elif amount <= 0:
+                st.error("⚠️ Betrag muss größer als 0 sein!")
+            else:
+                # Visuelles Feedback während des Speicherns
+                with st.spinner(f"Buche {typ} für {final_name}..."):
+                    tz = pytz.timezone('Europe/Berlin')
+                    now = datetime.now(tz)
+                    
+                    new_entry = pd.DataFrame([{
+                        "Datum": now.strftime("%d.%m.%Y"),
+                        "Zeit": now.strftime("%H:%M"),
+                        "Spieler": final_name,
+                        "Typ": typ,
+                        "Betrag": amount
+                    }])
+                    
                     try:
-                        tq = "moneybag" if sign > 0 else "chart_with_downwards_trend"
-                        requests.post("https://ntfy.sh/bj-boys-dashboard", 
-                            data=f"{final_name}: {amount}€".encode('utf-8'),
-                            headers={"Title": "Update".encode('utf-8'), "Tags": tq})
-                    except: pass
+                        # Daten neu laden um Konflikte zu vermeiden
+                        raw = conn.read(worksheet="Buchungen", ttl=0)
+                        updated_df = pd.concat([raw, new_entry], ignore_index=True)
+                        conn.update(worksheet="Buchungen", data=updated_df)
+                        
+                        # Notification (Optional, fail-safe)
+                        if "Bank" in typ:
+                            try:
+                                tq = "moneybag" if sign > 0 else "chart_with_downwards_trend"
+                                requests.post("https://ntfy.sh/bj-boys-dashboard", 
+                                    data=f"{final_name}: {amount}€".encode('utf-8'),
+                                    headers={"Title": "Update".encode('utf-8'), "Tags": tq}, timeout=2)
+                            except: pass
 
-                st.toast(f"✅ {typ}: {amount}€", icon="♠️")
-                
-                # Visual Feedback & Reset
-                if typ == "Bank Einnahme": st.balloons()
-                time.sleep(0.8)
-                st.cache_data.clear()
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"Fehler: {e}")
-        elif typ and not final_name:
-            st.warning("Bitte Namen wählen!")
+                        st.toast(f"✅ {typ}: {amount}€ erfolgreich!", icon="♠️")
+                        
+                        if typ == "Bank Einnahme": st.balloons()
+                        
+                        # Kurze Pause damit User den Toast sieht, dann Cache clearen
+                        time.sleep(1)
+                        st.cache_data.clear()
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Fehler beim Speichern: {e}")
 
 # --- PAGE 3: STATS ---
 elif page == "Statistik":
