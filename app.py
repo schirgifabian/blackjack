@@ -8,414 +8,380 @@ import pytz
 import requests
 import urllib.parse
 
-# --- PAGE CONFIG ---
+# --- 1. CONFIG & SETUP ---
 st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
 
-# --- KONSTANTEN ---
+# Konstanten
 VALID_PLAYERS = sorted(["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"])
+THEME_COLOR = "#4F46E5" # Indigo-600
 
-# --- PREMIUM CSS STYLING ---
+# --- 2. ULTIMATE CSS ENGINE ---
 st.markdown("""
 <style>
-    /* 1. Schriftart importieren (Inter) */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-        color: #1E293B;
-    }
-    
-    /* 2. Hintergrund & Globales */
+    /* FONTS IMPORTIEREN */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+    /* BASE STYLES */
     .stApp {
-        background: #F1F5F9; /* Slate-100 */
+        background-color: #F8FAFC; /* Slate-50 */
+        font-family: 'Inter', sans-serif;
     }
     
-    /* 3. Karten-Design (Soft UI) */
-    div[data-testid="stVerticalBlock"] > div[style*="background-color"] {
-        background-color: #FFFFFF;
-        border-radius: 20px;
-        padding: 24px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
-        border: 1px solid #F8FAFC;
+    h1, h2, h3 {
+        color: #0F172A;
+        font-weight: 800;
+        letter-spacing: -0.5px;
     }
     
-    /* 4. Metriken (KPI Boxen) */
-    div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        padding: 16px;
-        border-radius: 16px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        transition: transform 0.2s;
-    }
-    div[data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    /* ZAHLEN DESIGN (Monospace für Finance-Look) */
+    .money-font {
+        font-family: 'JetBrains Mono', monospace;
+        font-feature-settings: "zero" 1;
     }
     
-    /* 5. Großer Kontostand */
-    .balance-card {
-        background: linear-gradient(135deg, #0F172A 0%, #334155 100%);
-        color: white;
-        padding: 40px 20px;
+    /* CUSTOM CARDS */
+    .finance-card {
+        background: white;
         border-radius: 24px;
-        text-align: center;
-        margin-bottom: 30px;
-        box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.3);
+        padding: 24px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        border: 1px solid #F1F5F9;
+        margin-bottom: 20px;
     }
-    .balance-label {
-        font-size: 13px;
+    
+    /* HERO BALANCE SECTION */
+    .hero-balance {
+        text-align: center;
+        padding: 40px 0;
+        background: linear-gradient(135deg, #4F46E5 0%, #3730A3 100%);
+        border-radius: 0 0 32px 32px;
+        margin: -60px -20px 30px -20px; /* Zieht den Header nach oben raus */
+        color: white;
+        box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.3);
+    }
+    .hero-label {
+        font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 2px;
         opacity: 0.8;
-        margin-bottom: 8px;
         font-weight: 600;
     }
-    .balance-value {
+    .hero-amount {
+        font-family: 'JetBrains Mono', monospace;
         font-size: 56px;
-        font-weight: 800;
-        letter-spacing: -1px;
+        font-weight: 700;
+        margin-top: 10px;
+        letter-spacing: -2px;
     }
-    .balance-neg {
-        background: linear-gradient(135deg, #991B1B 0%, #EF4444 100%);
+    
+    /* INPUT FIELDS OPTIMIERUNG */
+    /* Macht Number Inputs riesig für Mobile */
+    div[data-testid="stNumberInput"] input {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 24px;
+        text-align: center;
+        font-weight: bold;
+        padding: 15px;
+        border-radius: 12px;
     }
-
-    /* 6. Tabs verschönern */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        background-color: transparent;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #FFFFFF;
-        border-radius: 30px;
-        padding: 8px 20px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        border: 1px solid #E2E8F0;
+    
+    /* BUTTONS */
+    div.stButton > button {
+        border-radius: 16px;
+        height: 55px;
         font-weight: 600;
-        font-size: 14px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border: none;
+        transition: all 0.2s;
     }
-    .stTabs [aria-selected="true"] {
-        background-color: #0F172A !important;
-        color: white !important;
+    div.stButton > button:active {
+        transform: scale(0.98);
     }
 
-    /* Hide Decorations */
+    /* HIDE STREAMLIT UI */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    
+    /* TAB DESIGN */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: white;
+        padding: 10px;
+        border-radius: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 12px;
+        font-weight: 600;
+        border: none;
+        background-color: transparent;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #F1F5F9 !important;
+        color: #4F46E5 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- HELPER FUNKTIONEN ---
-def generate_epc_qr_url(name, iban, amount, purpose):
-    iban_clean = iban.replace(" ", "").upper()
-    amount_str = f"EUR{amount:.2f}"
-    epc_data = f"BCD\n002\n1\nSCT\n\n{name}\n{iban_clean}\n{amount_str}\n\n\n{purpose}\n"
-    data_encoded = urllib.parse.quote(epc_data)
-    return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={data_encoded}"
+# --- 3. LOGIC CORE ---
 
-def berechne_netto(row):
+def get_qr_url(name, iban, amount, purpose):
+    data = f"BCD\n002\n1\nSCT\n\n{name}\n{iban.replace(' ', '')}\nEUR{amount:.2f}\n\n\n{purpose}"
+    return f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(data)}"
+
+def calculate_netto(row):
     betrag = row["Betrag"]
     aktion = str(row["Aktion"]).lower()
-    if ("ausgabe" in aktion or "auszahlung" in aktion) and betrag > 0:
-        return -betrag
-    return betrag
+    return -betrag if (("ausgabe" in aktion or "auszahlung" in aktion) and betrag > 0) else betrag
 
 @st.cache_data(ttl=0)
-def load_data():
+def load_db():
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
         df = conn.read(worksheet="Buchungen", ttl=0)
-        rename_map = {"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"}
-        df = df.rename(columns=rename_map)
-        
+        df = df.rename(columns={"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"})
         if not df.empty:
-            df["Betrag"] = df["Betrag"].astype(str).str.replace(',', '.', regex=False)
-            df["Betrag"] = pd.to_numeric(df["Betrag"], errors='coerce').fillna(0)
+            df["Betrag"] = pd.to_numeric(df["Betrag"].astype(str).str.replace(',', '.', regex=False), errors='coerce').fillna(0)
             df['Full_Date'] = pd.to_datetime(df['Datum'] + ' ' + df['Zeitstempel'].fillna('00:00'), format='%d.%m.%Y %H:%M', errors='coerce')
             df['Full_Date'] = df['Full_Date'].fillna(pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce'))
-            df["Netto"] = df.apply(berechne_netto, axis=1)
-            df = df.sort_values(by="Full_Date", ascending=False).reset_index(drop=True)
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["Datum", "Name", "Aktion", "Betrag", "Netto", "Full_Date"])
+            df["Netto"] = df.apply(calculate_netto, axis=1)
+            return df.sort_values("Full_Date", ascending=False).reset_index(drop=True), conn
+    except: pass
+    return pd.DataFrame(columns=["Datum", "Name", "Aktion", "Betrag", "Netto", "Full_Date"]), conn
 
-# --- DATEN LADEN ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-df = load_data()
+df, conn = load_db()
 kontostand = df["Netto"].sum() if not df.empty else 0.0
 
-# --- SIDEBAR NAV ---
-st.sidebar.markdown("## ♠️ Blackjack Bank")
-page = st.sidebar.radio("Navigation", ["Dashboard", "Neue Buchung", "Statistik", "Abrechnung"], label_visibility="collapsed")
-st.sidebar.markdown("---")
-if st.sidebar.button("🔄 Reload App", use_container_width=True):
-    st.cache_data.clear()
-    st.rerun()
+# --- 4. NAVIGATION BAR (Bottom-Style Logic via Sidebar) ---
+with st.sidebar:
+    st.markdown("### ♠️ Menu")
+    nav = st.radio("Navigation", ["Home", "ATM (Buchen)", "Analytics", "Schulden"], label_visibility="collapsed")
+    st.markdown("---")
+    if st.button("Runde beenden (Reload)", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
-# --- HEADER BEREICH (Immer sichtbar) ---
-if page == "Dashboard":
-    # Custom HTML Card für den Kontostand
-    css_class = "balance-card" if kontostand >= 0 else "balance-card balance-neg"
-    balance_fmt = f"{kontostand:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    
+# --- 5. PAGE: HOME ---
+if nav == "Home":
+    # HERO SECTION
     st.markdown(f"""
-    <div class="{css_class}">
-        <div class="balance-label">Aktueller Bank-Stand</div>
-        <div class="balance-value">{balance_fmt} €</div>
+    <div class="hero-balance">
+        <div class="hero-label">Aktueller Bank-Pot</div>
+        <div class="hero-amount">{kontostand:,.2f} €</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE 1: DASHBOARD ---
-if page == "Dashboard":
     if df.empty:
-        st.info("👋 Willkommen! Starte mit deiner ersten Buchung.")
+        st.info("Noch keine Spiele. Ab an den Tisch!")
     else:
-        # KPI Row
-        col1, col2, col3 = st.columns(3)
-        
+        # QUICK STATS ROW
+        col1, col2 = st.columns(2)
         today = datetime.now().date()
         df_today = df[df["Full_Date"].dt.date == today]
         
-        turnover_in = df_today[df_today["Aktion"].str.contains("Einzahlung", na=False)]["Betrag"].sum()
-        turnover_out = df_today[df_today["Aktion"].str.contains("Auszahlung", na=False)]["Betrag"].sum()
-        bank_delta_today = df_today["Netto"].sum()
-
-        col1.metric("Verkauf (Heute)", f"{turnover_in:.0f} €")
-        col2.metric("Auszahlung (Heute)", f"{turnover_out:.0f} €")
-        col3.metric("Bank Gewinn (Heute)", f"{bank_delta_today:+.2f} €", delta=bank_delta_today)
-
-        st.write("")
-        st.markdown("##### 🔥 Live Leaderboard")
-        
-        # Schöne Tabelle mit Progress Bars
-        df_players = df[~df["Aktion"].str.contains("Bank", case=False)]
-        if not df_players.empty:
-            lb = df_players.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
+        with col1:
+            st.markdown('<div class="finance-card" style="text-align:center; padding:15px;">', unsafe_allow_html=True)
+            st.caption("Verkauf Heute")
+            st.markdown(f'<div class="money-font" style="font-size:20px; color:#10B981;">+{df_today[df_today["Netto"] > 0]["Netto"].sum():.0f} €</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            st.dataframe(
-                lb,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Name": st.column_config.TextColumn("Spieler", width="medium"),
-                    "Profit": st.column_config.ProgressColumn(
-                        "Gewinn / Verlust",
-                        format="%.2f €",
-                        min_value=float(lb["Profit"].min()),
-                        max_value=float(lb["Profit"].max()),
-                    )
-                }
-            )
-        
-        st.write("")
-        st.markdown("##### 🕒 Letzte Transaktionen")
-        st.dataframe(
-            df[["Zeitstempel", "Name", "Aktion", "Betrag"]].head(5),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Zeitstempel": st.column_config.TextColumn("Uhrzeit", width="small"),
-                "Betrag": st.column_config.NumberColumn("Betrag", format="%.2f €")
-            }
-        )
+        with col2:
+            st.markdown('<div class="finance-card" style="text-align:center; padding:15px;">', unsafe_allow_html=True)
+            st.caption("Payout Heute")
+            st.markdown(f'<div class="money-font" style="font-size:20px; color:#EF4444;">{df_today[df_today["Netto"] < 0]["Netto"].sum():.0f} €</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-# --- PAGE 2: BUCHUNG ---
-elif page == "Neue Buchung":
-    st.markdown("### 💸 Transaktion erfassen")
+        # LEADERBOARD WIDGET
+        st.markdown("### 🏆 Top Performer")
+        df_players = df[~df["Aktion"].str.contains("Bank", case=False)]
+        
+        if not df_players.empty:
+            lb = df_players.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False).head(5)
+            
+            # Custom HTML Table for full control
+            html_table = '<div class="finance-card" style="padding:0; overflow:hidden;">'
+            for idx, row in lb.iterrows():
+                rank = idx + 1
+                medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
+                color = "#10B981" if row['Profit'] >= 0 else "#EF4444"
+                bg = "#F8FAFC" if rank % 2 == 0 else "white"
+                
+                html_table += f"""
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; background:{bg}; border-bottom:1px solid #F1F5F9;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <span style="font-size:18px;">{medal}</span>
+                        <span style="font-weight:600; font-size:15px;">{row['Name']}</span>
+                    </div>
+                    <span class="money-font" style="color:{color}; font-weight:bold;">{row['Profit']:+.2f} €</span>
+                </div>
+                """
+            html_table += "</div>"
+            st.markdown(html_table, unsafe_allow_html=True)
+
+# --- 6. PAGE: ATM (BUCHUNG) ---
+elif nav == "ATM (Buchen)":
+    st.markdown("<h2 style='text-align:center; margin-bottom:30px;'>ATM Transfer 🏧</h2>", unsafe_allow_html=True)
     
-    with st.container(border=True):
-        st.caption("Schritt 1: Wer?")
-        # Modern Chips selection
-        buchung_namen = VALID_PLAYERS + ["Manuelle Ausgabe 📝"]
-        auswahl_name = st.pills("", buchung_namen, selection_mode="single", default=VALID_PLAYERS[0])
+    with st.container():
+        st.markdown('<div class="finance-card">', unsafe_allow_html=True)
         
-        final_name = auswahl_name
-        if auswahl_name == "Manuelle Ausgabe 📝":
-            final_name = st.text_input("Verwendungszweck", placeholder="z.B. Pizza Bestellung")
-
-        st.write("")
-        st.caption("Schritt 2: Wie viel & Was?")
-        
-        col_amount, col_type = st.columns([1, 1.5])
-        with col_amount:
-            betrag_input = st.number_input("Betrag", value=10.0, step=5.0, format="%.2f")
-        
-        with col_type:
-            # Clean Labels
-            aktion_map = {
-                "📥 Einzahlung (Kauf)": "Einzahlung",
-                "📤 Auszahlung (Rückgabe)": "Auszahlung",
-                "🏦 Bank Einnahme": "Bank Einnahme",
-                "💸 Bank Ausgabe": "Bank Ausgabe"
-            }
-            aktion_label = st.radio("Typ", list(aktion_map.keys()), label_visibility="collapsed")
-            typ_short = aktion_map[aktion_label]
-
+        # 1. Spieler Wahl (Pills)
+        st.caption("ACCOUNT WÄHLEN")
+        player = st.pills("Spieler", VALID_PLAYERS + ["Manuell"], selection_mode="single", default=VALID_PLAYERS[0], label_visibility="collapsed")
+        if player == "Manuell":
+            player = st.text_input("Name/Zweck", placeholder="Zweck eingeben")
+            
         st.markdown("---")
         
-        if st.button("Transaktion buchen", type="primary", use_container_width=True):
-            if final_name:
+        # 2. Betrag (Huge)
+        st.caption("BETRAG (€)")
+        amount = st.number_input("Betrag", value=10.0, step=5.0, min_value=0.0, format="%.2f", label_visibility="collapsed")
+        
+        st.markdown("---")
+        
+        # 3. Aktion (Icons)
+        st.caption("AKTION")
+        # Custom Layout for Actions
+        c1, c2 = st.columns(2)
+        type_choice = st.radio("Typ", ["Einzahlung (Kauf)", "Auszahlung (Rückgabe)", "Bank Einnahme", "Bank Ausgabe"], label_visibility="collapsed")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # 4. Action Button
+        action_map = {
+            "Einzahlung (Kauf)": "Einzahlung",
+            "Auszahlung (Rückgabe)": "Auszahlung",
+            "Bank Einnahme": "Bank Einnahme",
+            "Bank Ausgabe": "Bank Ausgabe"
+        }
+        
+        if st.button("💸 Transaktion bestätigen", type="primary", use_container_width=True):
+            if player:
                 tz = pytz.timezone('Europe/Berlin')
                 now = datetime.now(tz)
+                typ_clean = action_map[type_choice]
                 
-                neuer_eintrag = pd.DataFrame([{
+                new_row = pd.DataFrame([{
                     "Datum": now.strftime("%d.%m.%Y"),
                     "Zeit": now.strftime("%H:%M"),
-                    "Spieler": final_name,
-                    "Typ": typ_short,
-                    "Betrag": betrag_input
+                    "Spieler": player,
+                    "Typ": typ_clean,
+                    "Betrag": amount
                 }])
                 
                 try:
-                    df_raw = conn.read(worksheet="Buchungen", ttl=0)
-                    updated_df = pd.concat([df_raw, neuer_eintrag], ignore_index=True)
-                    conn.update(worksheet="Buchungen", data=updated_df)
+                    raw_df = conn.read(worksheet="Buchungen", ttl=0)
+                    conn.update(worksheet="Buchungen", data=pd.concat([raw_df, new_row], ignore_index=True))
                     
-                    # NTFY Integration
-                    if "Bank" in typ_short:
+                    # NTFY Hook
+                    if "Bank" in typ_clean:
                         try:
-                            ntfy_topic = "bj-boys-dashboard"
-                            msg_title = "💰 Bank Plus" if "Einnahme" in typ_short else "💸 Bank Minus"
-                            msg_tag = "moneybag" if "Einnahme" in typ_short else "chart_with_downwards_trend"
-                            requests.post(f"https://ntfy.sh/{ntfy_topic}", 
-                                        data=f"{final_name}: {betrag_input}€".encode('utf-8'),
-                                        headers={"Title": msg_title.encode('utf-8'), "Tags": msg_tag})
+                            topic, title, tag = "bj-boys-dashboard", "Bank Update", "moneybag"
+                            if "Ausgabe" in typ_clean: tag = "chart_with_downwards_trend"
+                            requests.post(f"https://ntfy.sh/{topic}", 
+                                        data=f"{player}: {amount}€".encode('utf-8'),
+                                        headers={"Title": title.encode('utf-8'), "Tags": tag})
                         except: pass
 
+                    st.toast("Transaktion erfolgreich!", icon="✅")
                     st.cache_data.clear()
                     
-                    # Success "Receipt"
-                    st.success("Erfolgreich gebucht!")
+                    # Receipt Animation
                     st.markdown(f"""
-                    <div style="background-color:#ECFDF5; padding:15px; border-radius:10px; border:1px solid #10B981; color:#065F46; text-align:center;">
-                        <strong>{final_name}</strong><br>
-                        {aktion_label}<br>
-                        <span style="font-size:20px; font-weight:bold;">{betrag_input:.2f} €</span>
+                    <div style="background:#ECFDF5; color:#065F46; padding:20px; border-radius:16px; text-align:center; border:1px solid #10B981; margin-top:20px;">
+                        <div style="font-size:40px; margin-bottom:10px;">✅</div>
+                        <div style="font-weight:bold; font-size:18px;">{amount:.2f} €</div>
+                        <div style="opacity:0.8;">{typ_clean} für {player}</div>
                     </div>
                     """, unsafe_allow_html=True)
                     
                 except Exception as e:
                     st.error(f"Fehler: {e}")
 
-# --- PAGE 3: STATISTIK ---
-elif page == "Statistik":
-    st.markdown("### 📈 Deep Dive")
+# --- 7. PAGE: ANALYTICS ---
+elif nav == "Analytics":
+    st.markdown("## 📊 Market Data")
     
-    col_sel, col_dummy = st.columns([2, 1])
-    with col_sel:
-        zeitraum = st.selectbox("Zeitraum wählen", ["Gesamt", "Aktuelle Session", "Dieser Monat"])
+    # Timeframe Selector als Segmented Control
+    mode = st.pills("Zeitraum", ["Aktuelle Session", "Gesamt"], selection_mode="single", default="Aktuelle Session")
     
-    # Filter Logic
     df_stats = df.copy()
-    today = datetime.now().date()
-    
-    if zeitraum == "Aktuelle Session":
+    if mode == "Aktuelle Session":
+        today = datetime.now().date()
         df_stats = df_stats[df_stats["Full_Date"].dt.date.isin([today, today - timedelta(days=1)])]
-    elif zeitraum == "Dieser Monat":
-        df_stats = df_stats[df_stats["Full_Date"].dt.month == today.month]
 
-    t1, t2 = st.tabs(["Performance", "Verlauf"])
+    tab_perf, tab_flow = st.tabs(["Performance", "Cashflow"])
     
-    with t1:
-        # Plotly Chart ohne Grid, sehr clean
+    with tab_perf:
         df_p = df_stats[~df_stats["Aktion"].str.contains("Bank", case=False)]
         if not df_p.empty:
             data = df_p.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
-            data["Color"] = data["Profit"].apply(lambda x: '#10B981' if x >= 0 else '#EF4444') # Emerald vs Red
+            data["Color"] = data["Profit"].apply(lambda x: '#4F46E5' if x >= 0 else '#94A3B8') # Indigo vs Slate
             
             fig = px.bar(data, x="Name", y="Profit", text="Profit")
-            fig.update_traces(marker_color=data["Color"], texttemplate='%{text:+.0f}', textposition='outside')
+            fig.update_traces(marker_color=data["Color"], texttemplate='%{text:+.0f}', textposition='outside', textfont_family="JetBrains Mono")
             fig.update_layout(
                 template="plotly_white",
                 plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                yaxis_title=None,
-                xaxis_title=None,
-                yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
-                margin=dict(t=20, l=0, r=0, b=0),
-                height=350
+                yaxis=dict(showgrid=True, gridcolor='#F1F5F9', title=None, showticklabels=False),
+                xaxis=dict(title=None),
+                margin=dict(t=30, l=0, r=0, b=0),
+                height=320,
+                font=dict(family="Inter")
             )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Keine Daten im gewählten Zeitraum.")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             
-    with t2:
+    with tab_flow:
         if not df_stats.empty:
             df_hist = df_stats.sort_values("Full_Date")
             df_hist["Bankverlauf"] = df_hist["Netto"].cumsum()
             
             fig_l = px.area(df_hist, x="Full_Date", y="Bankverlauf")
-            fig_l.update_traces(line_color='#0F172A', fill_color='rgba(15, 23, 42, 0.1)')
+            fig_l.update_traces(line_color='#4F46E5', fill_color='rgba(79, 70, 229, 0.1)', line_shape='spline')
             fig_l.update_layout(
                 template="plotly_white",
                 plot_bgcolor='rgba(0,0,0,0)',
-                yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
+                yaxis=dict(showgrid=True, gridcolor='#F1F5F9', title=None),
+                xaxis=dict(title=None, showgrid=False),
                 margin=dict(t=20, l=0, r=0, b=0),
-                height=350
+                height=320
             )
-            st.plotly_chart(fig_l, use_container_width=True)
+            st.plotly_chart(fig_l, use_container_width=True, config={"displayModeBar": False})
 
-# --- PAGE 4: ABRECHNUNG ---
-elif page == "Abrechnung":
-    st.markdown("### 🏁 Kassensturz")
-    
-    # Secrets Handling
-    secrets_iban = st.secrets.get("bank", {}).get("iban", "")
-    secrets_owner = st.secrets.get("bank", {}).get("owner", "Blackjack Kasse")
-    
-    if not secrets_iban:
-        st.warning("⚠️ Keine IBAN konfiguriert.")
-        secrets_iban = st.text_input("IBAN für QR Code:")
+# --- 8. PAGE: SCHULDEN (SETTLEMENT) ---
+elif nav == "Schulden":
+    st.markdown("## 🏁 Settlement")
+    st.info("Berechnung basierend auf der aktuellen Session (Heute & Gestern).")
 
-    # Logik für Session
+    # Secrets
+    iban = st.secrets.get("bank", {}).get("iban", "")
+    owner = st.secrets.get("bank", {}).get("owner", "Blackjack Bank")
+    if not iban: iban = st.text_input("IBAN für QR Code:")
+    
     today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
-    df_sess = df[df["Full_Date"].dt.date.isin([today, yesterday]) & df["Name"].isin(VALID_PLAYERS)]
+    df_sess = df[df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)]) & df["Name"].isin(VALID_PLAYERS)]
     
     if df_sess.empty:
-        st.info("Keine aktive Session gefunden.")
+        st.markdown('<div class="finance-card" style="text-align:center;">💤 Keine aktive Session.</div>', unsafe_allow_html=True)
     else:
+        # Logik: Netto > 0 heißt, man hat Chips gekauft (Geld geschuldet) und nicht zurückgetauscht.
         bilanz = df_sess.groupby("Name")["Netto"].sum()
-        # Wer im Plus ist beim "Netto" hat der Bank Geld gegeben -> Bank hat Geld -> Spieler hat verloren
-        # Wer im Minus ist beim "Netto" hat Geld genommen -> Bank hat weniger -> Spieler hat gewonnen
-        # Wait, Logik Check:
-        # Einzahlung: +100 (Netto +100 in Bank). Bank hat 100.
-        # Auszahlung: -50 (Netto -50 in Bank). Bank hat 50.
-        # Spieler hat 100 gezahlt, 50 bekommen. Spieler hat 50 verloren.
-        # Also: Positive Summe = Spieler Verlust (Muss zahlen, falls er noch nicht gezahlt hat? Nein.)
+        debtors = bilanz[bilanz > 0]
         
-        # STOP: Blackjack Logik ist anders.
-        # Am Ende des Abends zählt man Chips.
-        # Differenz = Ergebnis.
-        # Wenn wir "Einzahlung" buchen, hat der Spieler das Geld schon physisch gegeben?
-        # Annahme: Ja, Einzahlung = Cash in die Kasse.
-        # Dann muss am Ende niemand etwas überweisen, außer die Kasse ist leer.
-        
-        # VARIANTE "SCHULDENBUCH":
-        # Wenn "Einzahlung" heißt: "Ich kaufe Chips auf Pump", dann muss man am Ende zahlen.
-        # Wir nehmen an: Einzahlung = Schulden bei der Bank. Auszahlung = Schulden tilgen / Gewinn.
-        
-        # Wir schauen nur auf Netto.
-        # Netto > 0: Spieler hat mehr Chips geholt als zurückgegeben -> Er schuldet der Bank Geld.
-        schuldner = bilanz[bilanz > 0]
-
-        if schuldner.empty:
-            st.success("✅ Niemand hat Schulden aus dieser Session!")
+        if debtors.empty:
+            st.success("Alles ausgeglichen! 🎉")
         else:
-            st.markdown("Folgende Spieler haben Chips gekauft aber weniger zurückgegeben (Verlust):")
-            
-            # Schöne Cards für Schuldner
-            for player, amount in schuldner.items():
-                with st.expander(f"💳 **{player}**: {amount:.2f} € offen", expanded=True):
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        qr = generate_epc_qr_url(secrets_owner, secrets_iban, amount, f"BJ {player}")
-                        st.image(qr, width=200)
-                    with c2:
-                        st.markdown(f"""
-                        **Empfänger:** {secrets_owner}<br>
-                        **IBAN:** {secrets_iban}<br>
-                        **Betrag:** <span style="color:#EF4444; font-weight:bold;">{amount:.2f} €</span><br>
-                        **Verwendungszweck:** BJ {player}
-                        """, unsafe_allow_html=True)
+            for name, amount in debtors.items():
+                qr_link = get_qr_url(owner, iban, amount, f"BJ {name}")
+                
+                # Card Design für Schuldner
+                st.markdown(f"""
+                <div class="finance-card" style="display:flex; align-items:center; gap:20px;">
+                    <img src="{qr_link}" width="100" style="border-radius:10px;">
+                    <div style="flex-grow:1;">
+                        <h3 style="margin:0;">{name}</h3>
+                        <div style="color:#64748B; font-size:14px; margin-bottom:5px;">muss zahlen</div>
+                        <div class="money-font" style="font-size:24px; color:#EF4444; font-weight:bold;">{amount:.2f} €</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
