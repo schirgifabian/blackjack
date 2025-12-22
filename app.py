@@ -15,9 +15,12 @@ st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="cent
 VALID_PLAYERS = sorted(["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"])
 CHIP_VALUES = [5, 10, 20, 50, 100]
 
-# Init Session State für "Chip Click"
-if 'selected_amount' not in st.session_state:
-    st.session_state.selected_amount = 10.0
+# --- SESSION STATE SETUP (Fix für die Transaktions-Seite) ---
+if 'trans_amount' not in st.session_state:
+    st.session_state.trans_amount = 10.0
+
+def set_amount(val):
+    st.session_state.trans_amount = float(val)
 
 # --- 2. LUXURY CSS ENGINE ---
 st.markdown("""
@@ -44,11 +47,7 @@ st.markdown("""
         margin-bottom: 20px;
         transition: transform 0.2s;
     }
-    .glass-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.1);
-    }
-
+    
     /* VAULT DISPLAY (Header) */
     .vault-display {
         background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
@@ -58,8 +57,6 @@ st.markdown("""
         text-align: center;
         margin-bottom: 25px;
         box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.4);
-        position: relative;
-        overflow: hidden;
     }
     .vault-label {
         text-transform: uppercase;
@@ -74,43 +71,29 @@ st.markdown("""
         font-size: 60px;
         font-weight: 700;
         letter-spacing: -2px;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
     }
     
-    /* CHIP BUTTONS */
-    .chip-btn {
-        background: white;
-        border: 1px solid #E2E8F0;
+    /* CHIP BUTTONS STYLING (Streamlit Buttons hacken) */
+    div[data-testid="column"] button {
         border-radius: 50%;
-        width: 60px;
         height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        width: 60px;
         font-family: 'JetBrains Mono', monospace;
-        font-weight: bold;
+        font-weight: 700;
+        border: 2px solid #E2E8F0;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        cursor: pointer;
-        transition: all 0.1s;
-        margin: 0 auto;
+        transition: all 0.2s;
     }
-    .chip-btn:active { transform: scale(0.9); }
-    
-    /* CUSTOM STREAMLIT TWEAKS */
-    div[data-testid="stVerticalBlock"] > div { gap: 1rem; }
-    
-    /* Inputs stylish */
-    .stSelectbox > div > div {
-        background-color: rgba(255,255,255,0.8);
-        border-radius: 12px;
-        border: none;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    div[data-testid="column"] button:focus {
+        border-color: #0F172A;
+        color: #0F172A;
+        background: #F1F5F9;
     }
-    
-    /* Hide Decorations */
+
+    /* HIDE DECORATIONS */
     #MainMenu, footer, header {visibility: hidden;}
     
-    /* Tabs */
+    /* TABS */
     .stTabs [data-baseweb="tab-list"] {
         background: rgba(255,255,255,0.5);
         padding: 5px;
@@ -220,7 +203,7 @@ if page == "Übersicht":
                     </div>
                     """, unsafe_allow_html=True)
 
-# --- PAGE 2: QUICK TRANSACTION (The "Casino" Interface) ---
+# --- PAGE 2: QUICK TRANSACTION (FIXED) ---
 elif page == "Transaktion":
     st.markdown("### 🎲 Quick Action")
     
@@ -232,100 +215,88 @@ elif page == "Transaktion":
         final_name = st.text_input("Name/Zweck", placeholder="Pizza") if p_sel == "Sonstiges" else p_sel
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 2. CHIP SELECTOR (Interactive)
+        # 2. CHIP SELECTOR (Callback Logic - Fixed)
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.caption("BETRAG WÄHLEN")
         
-        # Chip Grid
-        c1, c2, c3, c4, c5 = st.columns(5)
-        buttons = [c1, c2, c3, c4, c5]
-        
-        # Logic: If button clicked, update session state
-        for btn, val in zip(buttons, CHIP_VALUES):
-            if btn.button(f"{val}", key=f"chip_{val}", use_container_width=True):
-                st.session_state.selected_amount = float(val)
+        # Chip Buttons Grid
+        cols = st.columns(len(CHIP_VALUES))
+        for i, val in enumerate(CHIP_VALUES):
+            # WICHTIG: on_click verwendet, um Session State sicher zu updaten
+            cols[i].button(f"{val}", key=f"btn_{val}", on_click=set_amount, args=(val,), use_container_width=True)
 
-        # Display Current Amount big
-        amount = st.number_input("Betrag (€)", value=st.session_state.selected_amount, step=5.0, format="%.2f", label_visibility="visible")
+        st.write("")
+        # Input Field linked to session_state key 'trans_amount'
+        amount = st.number_input("Betrag (€)", key="trans_amount", step=5.0, format="%.2f", label_visibility="visible")
         st.markdown('</div>', unsafe_allow_html=True)
 
         # 3. ACTION & SUBMIT
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.caption("AKTION")
-        # Custom Action Grid
-        act_col1, act_col2 = st.columns(2)
         
-        with act_col1:
+        col_act1, col_act2 = st.columns(2)
+        
+        # Init Variables
+        typ = None
+        sign = 0
+        
+        with col_act1:
             if st.button("📥 KAUFEN (Einzahlen)", type="secondary", use_container_width=True):
                 typ, sign = "Einzahlung", 1
-                do_book = True
             if st.button("📈 BANK GEWINN", use_container_width=True):
                 typ, sign = "Bank Einnahme", 1
-                do_book = True
                 
-        with act_col2:
+        with col_act2:
             if st.button("📤 TAUSCHEN (Auszahlen)", type="secondary", use_container_width=True):
                 typ, sign = "Auszahlung", -1
-                do_book = True
             if st.button("💸 BANK VERLUST", use_container_width=True):
                 typ, sign = "Bank Ausgabe", -1
-                do_book = True
         
         st.markdown('</div>', unsafe_allow_html=True)
         
         # PROCESSING
-        # Note: Streamlit buttons reset on rerun. We use a trick or just simple Logic.
-        # Here we rely on the button click inside the columns being the trigger.
-        
-        # Since we can't easily capture the click of the specific buttons above without rerun logic, 
-        # let's simplify the trigger to a distinct commit phase if needed, OR use the buttons directly.
-        # The structure above executes the "if st.button" block immediately.
-        
-        if 'do_book' in locals() and do_book:
-            if final_name:
-                tz = pytz.timezone('Europe/Berlin')
-                now = datetime.now(tz)
+        if typ and final_name:
+            tz = pytz.timezone('Europe/Berlin')
+            now = datetime.now(tz)
+            
+            new_entry = pd.DataFrame([{
+                "Datum": now.strftime("%d.%m.%Y"),
+                "Zeit": now.strftime("%H:%M"),
+                "Spieler": final_name,
+                "Typ": typ,
+                "Betrag": amount
+            }])
+            
+            try:
+                raw = conn.read(worksheet="Buchungen", ttl=0)
+                conn.update(worksheet="Buchungen", data=pd.concat([raw, new_entry], ignore_index=True))
                 
-                new_entry = pd.DataFrame([{
-                    "Datum": now.strftime("%d.%m.%Y"),
-                    "Zeit": now.strftime("%H:%M"),
-                    "Spieler": final_name,
-                    "Typ": typ,
-                    "Betrag": amount
-                }])
-                
-                try:
-                    raw = conn.read(worksheet="Buchungen", ttl=0)
-                    conn.update(worksheet="Buchungen", data=pd.concat([raw, new_entry], ignore_index=True))
-                    
-                    # Notify
-                    if "Bank" in typ:
-                        try:
-                            tq = "moneybag" if sign > 0 else "chart_with_downwards_trend"
-                            requests.post("https://ntfy.sh/bj-boys-dashboard", 
-                                data=f"{final_name}: {amount}€".encode('utf-8'),
-                                headers={"Title": "Update".encode('utf-8'), "Tags": tq})
-                        except: pass
+                # Notify
+                if "Bank" in typ:
+                    try:
+                        tq = "moneybag" if sign > 0 else "chart_with_downwards_trend"
+                        requests.post("https://ntfy.sh/bj-boys-dashboard", 
+                            data=f"{final_name}: {amount}€".encode('utf-8'),
+                            headers={"Title": "Update".encode('utf-8'), "Tags": tq})
+                    except: pass
 
-                    st.toast(f"✅ {typ}: {amount}€", icon="♠️")
-                    
-                    # Visual Feedback
-                    if typ == "Bank Einnahme": st.balloons()
-                    
-                    time.sleep(1) # Short pause for UX
-                    st.cache_data.clear()
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"Fehler: {e}")
-            else:
-                st.warning("Namen wählen!")
+                st.toast(f"✅ {typ}: {amount}€", icon="♠️")
+                
+                # Visual Feedback & Reset
+                if typ == "Bank Einnahme": st.balloons()
+                time.sleep(0.8)
+                st.cache_data.clear()
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Fehler: {e}")
+        elif typ and not final_name:
+            st.warning("Bitte Namen wählen!")
 
 # --- PAGE 3: STATS ---
 elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
     
-    # Range Select
     scope = st.pills("Zeitraum", ["Aktuelle Session", "Gesamt"], default="Aktuelle Session")
     
     df_s = df.copy()
@@ -370,7 +341,6 @@ elif page == "Kassensturz":
     if df_sess.empty:
         st.info("Keine Daten für Session.")
     else:
-        # Wer muss zahlen? (Netto > 0 = Hat Chips gekauft und nicht getauscht = Verlust)
         bilanz = df_sess.groupby("Name")["Netto"].sum()
         debtors = bilanz[bilanz > 0]
         
@@ -382,8 +352,6 @@ elif page == "Kassensturz":
             
             for name, amount in debtors.items():
                 qr = get_qr(secrets_owner, secrets_iban, amount, f"BJ {name}")
-                
-                # Expandable Payment Card
                 with st.expander(f"🔴 {name} schuldet {amount:.2f} €"):
                     c1, c2 = st.columns([1, 2])
                     with c1:
