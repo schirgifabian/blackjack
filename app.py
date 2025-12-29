@@ -362,19 +362,61 @@ elif page == "Transaktion":
                         
                     except Exception as e:
                         st.error(f"Fehler: {e}")
+                        
+    # --- PUNKT 1: UNDO FUNKTION ---
+    st.markdown("---")
+    if not df.empty:
+        last_entry = df.iloc[0] # Da wir descending sortieren, ist 0 der neueste
+        with st.expander(f"↩️ Letzte Aktion rückgängig machen ({last_entry['Name']}: {last_entry['Betrag']}€)"):
+            st.warning("Wirklich löschen? Das entfernt die letzte Zeile aus dem Sheet.")
+            if st.button("🗑 Ja, letzte Buchung löschen", type="secondary"):
+                try:
+                    # Rohdaten laden (unsortiert, wie im Sheet)
+                    raw_df = conn.read(worksheet="Buchungen", ttl=0)
+                    if not raw_df.empty:
+                        # Letzte Zeile droppen
+                        raw_df = raw_df.iloc[:-1]
+                        conn.update(worksheet="Buchungen", data=raw_df)
+                        st.toast("Letzte Buchung gelöscht!", icon="🗑")
+                        time.sleep(1)
+                        st.cache_data.clear()
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler beim Löschen: {e}")
 
-# --- PAGE 3: STATS (FIXED & OPTIMIZED) ---
+# --- PAGE 3: STATS ---
 elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
     
-    # 1. Globale Balance-Historie berechnen (BEVOR gefiltert wird)
+    # --- PUNKT 3: BANK PROFIT (House Edge) ---
+    # Logik: Was die Bank gewonnen hat = Umkehrung dessen was Spieler "Netto" haben (exkl. Bank-Transaktionen)
+    # Oder: Wir schauen auf Bank Transaktionen (Gewinn/Verlust) + Chip Overflow
+    # Einfachste Metrik für "Gewinnt die Bank": 
+    # Wenn Spieler-Saldo negativ ist (Spieler haben verloren), ist die Bank im Plus.
+    
+    bank_profit = df[~df["Aktion"].str.contains("Bank", case=False, na=False)]["Netto"].sum() * -1
+    # Korrektur um explizite Bank-Transaktionen, falls diese "außerhalb" des Spiels waren?
+    # Wir nehmen hier an: Bank Profit = Summe aller Spieler-Verluste.
+    
+    st.markdown(f"""
+    <div class="glass-card" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <div class="metric-label">🏦 House Performance</div>
+            <div style="font-size: 12px; opacity: 0.7;">(Spielerverluste vs. Gewinne)</div>
+        </div>
+        <div class="metric-value" style="color: {'#10B981' if bank_profit >= 0 else '#EF4444'}">
+            {bank_profit:+.2f} €
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 1. Globale Balance-Historie berechnen
     df_calc = df.sort_values("Full_Date").copy()
     df_calc["Balance"] = df_calc["Netto"].cumsum()
     
-    # 2. Session-Logik korrigieren (Mitternachts-Bug Fix)
+    # 2. Session-Logik
     def get_session_date(dt):
         if pd.isna(dt): return datetime.now().date()
-        # Verschiebe alles vor 6 Uhr morgens auf den Vortag
         return dt.date() - timedelta(days=1) if dt.hour < 6 else dt.date()
 
     df_calc["Session_Date"] = df_calc["Full_Date"].apply(get_session_date)
@@ -386,7 +428,6 @@ elif page == "Statistik":
     today = datetime.now().date()
     
     if scope == "Aktuelle Session":
-        # Zeige Daten der letzten berechneten Session (Heute oder Gestern)
         current_session_date = get_session_date(datetime.now())
         df_s = df_calc[df_calc["Session_Date"] == current_session_date]
     elif scope == "Gesamt":
@@ -420,12 +461,11 @@ elif page == "Statistik":
             st.info("Keine Daten im gewählten Zeitraum.")
             
     with t2:
-        # Timeline (zeigt nun korrekte absolute Balance)
+        # Timeline
         if not df_s.empty:
             df_h = df_s.sort_values("Full_Date")
             fig_l = px.area(df_h, x="Full_Date", y="Balance")
             
-            # Y-Achse skalieren für bessere Sichtbarkeit
             min_y = df_h["Balance"].min()
             max_y = df_h["Balance"].max()
             padding = (max_y - min_y) * 0.1 if max_y != min_y else 10
@@ -441,17 +481,12 @@ elif page == "Statistik":
         st.markdown("##### 👤 Spieler-Profil")
         sel_player = st.selectbox("Spieler wählen", VALID_PLAYERS)
         
-        # Berechnung auf ALLES anwenden, nicht nur gefilterte Ansicht
         if sel_player and not df_calc.empty:
             df_play = df_calc[df_calc["Name"] == sel_player].copy()
             if not df_play.empty:
                 df_play["Player_Profit"] = -df_play["Netto"]
-                
                 lifetime = df_play["Player_Profit"].sum()
-                
-                # Session-basierte Berechnung (mit Fix für 3 Uhr nachts)
                 df_sess = df_play.groupby("Session_Date")["Player_Profit"].sum().reset_index()
-                
                 best_s = df_sess["Player_Profit"].max() if not df_sess.empty else 0
                 worst_s = df_sess["Player_Profit"].min() if not df_sess.empty else 0
                 
@@ -477,9 +512,11 @@ elif page == "Statistik":
             else:
                 st.info("Keine Daten für diesen Spieler.")
 
-# --- PAGE 4: SETTLEMENT (CRASH FIX) ---
+# --- PAGE 4: SETTLEMENT (LIFETIME) ---
 elif page == "Kassensturz":
-    st.markdown("### 🏁 Abrechnung")
+    # --- PUNKT 5: LIFETIME ABRECHNUNG ---
+    st.markdown("### 🏁 Abrechnung (Gesamt)")
+    st.info("ℹ️ Berechnet den aktuellen Kontostand aller Spieler über die gesamte Laufzeit (Lifetime). Zeigt an, wer noch Schulden hat.")
     
     secrets_iban = st.secrets.get("bank", {}).get("iban", "")
     secrets_owner = st.secrets.get("bank", {}).get("owner", "Bank")
@@ -488,46 +525,57 @@ elif page == "Kassensturz":
         secrets_iban = st.text_input("IBAN eingeben:", placeholder="DE...")
         secrets_owner = st.text_input("Empfänger:", value="Casino Bank")
     
-    # Sicherstellen, dass wir gültige Datumsangaben haben
-    df["Full_Date"] = pd.to_datetime(df["Full_Date"], errors='coerce')
-    
-    today = datetime.now().date()
-    
-    # Filter: NotNa prüft, ob das Datum gültig ist, bevor .dt aufgerufen wird
-    mask_date = (df["Full_Date"].notna()) & (df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)]))
-    mask_name = df["Name"].isin(VALID_PLAYERS)
-    
-    df_sess = df[mask_date & mask_name].copy()
+    # Wir nehmen ALLE Daten, filtern nicht nach Datum
+    # Nur Spieler berücksichtigen
+    df_sess = df[df["Name"].isin(VALID_PLAYERS)].copy()
     
     if df_sess.empty:
-        st.info("Keine offenen Sessions für Heute oder Gestern.")
+        st.info("Noch keine Buchungen vorhanden.")
     else:
-        bilanz = df_sess.groupby("Name")["Netto"].sum().mul(-1)
-        debtors = bilanz[bilanz < -0.01]
+        # Bilanz berechnen
+        bilanz_gesamt = df_sess.groupby("Name")["Netto"].sum().mul(-1)
         
-        if debtors.empty:
-            st.balloons()
-            st.success("Niemand hat Schulden! 🎉")
-        else:
-            st.markdown(f"**Empfänger:** {secrets_owner}<br><span style='font-family:monospace'>{secrets_iban}</span>", unsafe_allow_html=True)
-            st.markdown("---")
-            
-            for name, amount in debtors.items():
-                abs_amount = abs(amount)
-                qr = get_qr(secrets_owner, secrets_iban, abs_amount, f"BJ {name}")
-                
-                st.markdown(f"""
-                <div class="glass-card" style="padding: 0px; overflow: hidden; margin-bottom: 10px;">
-                    <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.5);">
-                        <span style="font-weight:bold; font-size:18px;">🔴 {name}</span>
-                        <span style="float:right; font-family:'JetBrains Mono'; font-weight:bold;">{abs_amount:.2f} €</span>
+        # Aufteilen in Schuldner (Müssen zahlen) und Gläubiger (Kriegen Geld)
+        # Filterung kleiner Beträge wegen Floating Point Ungenauigkeiten
+        debtors = bilanz_gesamt[bilanz_gesamt < -0.1]
+        creditors = bilanz_gesamt[bilanz_gesamt > 0.1]
+        
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.subheader("🔴 Zahler")
+            st.caption("Müssen an die Bank überweisen")
+            if debtors.empty:
+                st.write("Keine offenen Zahlungen.")
+            else:
+                for name, amount in debtors.items():
+                    abs_amount = abs(amount)
+                    qr = get_qr(secrets_owner, secrets_iban, abs_amount, f"BJ {name}")
+                    
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding: 10px; margin-bottom: 10px; border-left: 5px solid #EF4444;">
+                        <div style="font-weight:bold; font-size:16px;">{name}</div>
+                        <div style="font-family:'JetBrains Mono'; color:#EF4444;">{amount:.2f} €</div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                with st.expander(f"📱 QR Code für {name} anzeigen"):
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        st.image(qr, width=200)
-                    with c2:
-                        st.info("Scanne diesen Code mit deiner Banking App.")
+                    """, unsafe_allow_html=True)
+                    
+                    with st.expander(f"📱 QR für {name}"):
+                        st.image(qr, width=150)
+
+        with c2:
+            st.subheader("🟢 Empfänger")
+            st.caption("Bank schuldet diesen Spielern")
+            if creditors.empty:
+                st.write("Niemand.")
+            else:
+                for name, amount in creditors.items():
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding: 10px; margin-bottom: 10px; border-left: 5px solid #10B981;">
+                        <div style="font-weight:bold; font-size:16px;">{name}</div>
+                        <div style="font-family:'JetBrains Mono'; color:#10B981;">+{amount:.2f} €</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        if debtors.empty and creditors.empty:
+            st.balloons()
+            st.success("Alles ausgeglichen! 🎉")
