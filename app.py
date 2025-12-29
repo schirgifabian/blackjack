@@ -265,7 +265,6 @@ elif page == "Transaktion":
     st.markdown("### 🎲 Quick Action")
     
     # 1. PLAYER SECTION
-    # Wir nutzen st.container(border=True), das durch unser CSS nun wie eine Glass-Card aussieht!
     with st.container(border=True):
         st.caption("👤 SPIELER WÄHLEN")
         p_sel = st.pills("Name", VALID_PLAYERS + ["Sonstiges"], selection_mode="single", default=VALID_PLAYERS[0], key="player_select", label_visibility="collapsed")
@@ -281,7 +280,6 @@ elif page == "Transaktion":
         # Chips als Quick-Select
         cols = st.columns(len(CHIP_VALUES))
         for i, val in enumerate(CHIP_VALUES):
-            # Buttons stylen wir per CSS oben
             cols[i].button(f"{val}", key=f"btn_{val}", on_click=set_amount, args=(val,), use_container_width=True)
 
         st.write("")
@@ -451,7 +449,7 @@ elif page == "Statistik":
             else:
                 st.info("Keine Daten für diesen Spieler.")
 
-# --- PAGE 4: SETTLEMENT ---
+# --- PAGE 4: SETTLEMENT (FIXED) ---
 elif page == "Kassensturz":
     st.markdown("### 🏁 Abrechnung")
     
@@ -462,11 +460,18 @@ elif page == "Kassensturz":
         secrets_iban = st.text_input("IBAN eingeben:", placeholder="DE...")
         secrets_owner = st.text_input("Empfänger:", value="Casino Bank")
     
+    # --- FIX START ---
+    # Wir erzwingen hier nochmal ein Datetime Format, falls "load_data" bei einem Fehler eine leere Tabelle geliefert hat.
+    df["Full_Date"] = pd.to_datetime(df["Full_Date"], errors='coerce')
+    
     today = datetime.now().date()
-    mask_date = df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)])
+    
+    # Sicherer Filter: Prüft ob Datum existiert (.notna) BEVOR verglichen wird
+    mask_date = (df["Full_Date"].notna()) & (df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)]))
     mask_name = df["Name"].isin(VALID_PLAYERS)
     
     df_sess = df[mask_date & mask_name].copy()
+    # --- FIX END ---
     
     if df_sess.empty:
         st.info("Keine offenen Sessions für Heute oder Gestern.")
