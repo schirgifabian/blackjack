@@ -37,9 +37,7 @@ st.markdown("""
         color: #0F172A;
     }
     
-    /* TRICK: Wir stylen den nativen st.container(border=True) 
-       damit er wie die Glass-Card aussieht! 
-    */
+    /* GLASS CONTAINER */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(12px);
@@ -51,10 +49,10 @@ st.markdown("""
         margin-bottom: 20px;
     }
     div[data-testid="stVerticalBlockBorderWrapper"] > div {
-        padding: 0 !important; /* Reset padding inside to avoid double spacing */
+        padding: 0 !important;
     }
 
-    /* GLASSMORPHISM CARD (Für HTML Elemente wie Header/Leaderboard) */
+    /* GLASSMORPHISM CARD */
     .glass-card {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(12px);
@@ -67,7 +65,7 @@ st.markdown("""
         transition: transform 0.2s;
     }
     
-    /* VAULT DISPLAY (Header) */
+    /* VAULT DISPLAY */
     .vault-display {
         background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         color: white;
@@ -105,9 +103,9 @@ st.markdown("""
         opacity: 0.7;
     }
 
-    /* CHIP BUTTONS STYLING */
+    /* CHIP BUTTONS */
     div[data-testid="column"] button {
-        border-radius: 16px; /* Etwas moderner als 50% */
+        border-radius: 16px;
         height: 50px;
         width: 100%;
         font-family: 'JetBrains Mono', monospace;
@@ -128,7 +126,7 @@ st.markdown("""
         border-color: #0F172A;
     }
 
-    /* ACTION BUTTONS (Large) */
+    /* ACTION BUTTONS */
     button[kind="primary"] {
         border-radius: 16px;
         height: 60px;
@@ -208,7 +206,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-# --- HEADER ---
+# --- HEADER (visible on Overview) ---
 if page == "Übersicht":
     st.markdown(f"""
     <div class="vault-display">
@@ -260,7 +258,7 @@ if page == "Übersicht":
                     </div>
                     """, unsafe_allow_html=True)
 
-# --- PAGE 2: QUICK TRANSACTION (REDUX) ---
+# --- PAGE 2: QUICK TRANSACTION ---
 elif page == "Transaktion":
     st.markdown("### 🎲 Quick Action")
     
@@ -297,7 +295,6 @@ elif page == "Transaktion":
         sign = 0
         ntfy_tag = "moneybag"
         
-        # Symmetrisches Grid für die Buttons
         with c1:
             if st.button("📥 Einzahlen (Kaufen)", type="primary", use_container_width=True):
                 typ, sign = "Einzahlung", 1
@@ -366,31 +363,50 @@ elif page == "Transaktion":
                     except Exception as e:
                         st.error(f"Fehler: {e}")
 
-# --- PAGE 3: STATS ---
+# --- PAGE 3: STATS (FIXED & OPTIMIZED) ---
 elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
     
+    # 1. Globale Balance-Historie berechnen (BEVOR gefiltert wird)
+    df_calc = df.sort_values("Full_Date").copy()
+    df_calc["Balance"] = df_calc["Netto"].cumsum()
+    
+    # 2. Session-Logik korrigieren (Mitternachts-Bug Fix)
+    def get_session_date(dt):
+        if pd.isna(dt): return datetime.now().date()
+        # Verschiebe alles vor 6 Uhr morgens auf den Vortag
+        return dt.date() - timedelta(days=1) if dt.hour < 6 else dt.date()
+
+    df_calc["Session_Date"] = df_calc["Full_Date"].apply(get_session_date)
+
+    # 3. Filter anwenden
     filter_options = ["Aktuelle Session", "Gesamt", "Dieser Monat", "Benutzerdefiniert"]
     scope = st.pills("Zeitraum", filter_options, default="Aktuelle Session")
     
-    df_s = df.copy()
     today = datetime.now().date()
     
     if scope == "Aktuelle Session":
-        df_s = df_s[df_s["Full_Date"].dt.date.isin([today, today - timedelta(days=1)])]
+        # Zeige Daten der letzten berechneten Session (Heute oder Gestern)
+        current_session_date = get_session_date(datetime.now())
+        df_s = df_calc[df_calc["Session_Date"] == current_session_date]
+    elif scope == "Gesamt":
+        df_s = df_calc
     elif scope == "Dieser Monat":
-        df_s = df_s[(df_s["Full_Date"].dt.month == today.month) & (df_s["Full_Date"].dt.year == today.year)]
+        df_s = df_calc[(df_calc["Full_Date"].dt.month == today.month) & (df_calc["Full_Date"].dt.year == today.year)]
     elif scope == "Benutzerdefiniert":
         c_date = st.container()
         d_range = c_date.date_input("Wähle Zeitraum:", value=(today - timedelta(days=7), today), format="DD.MM.YYYY")
         if isinstance(d_range, tuple) and len(d_range) == 2:
-            df_s = df_s[(df_s["Full_Date"].dt.date >= d_range[0]) & (df_s["Full_Date"].dt.date <= d_range[1])]
+            df_s = df_calc[(df_calc["Full_Date"].dt.date >= d_range[0]) & (df_calc["Full_Date"].dt.date <= d_range[1])]
         elif isinstance(d_range, tuple) and len(d_range) == 1:
-            df_s = df_s[df_s["Full_Date"].dt.date == d_range[0]]
+            df_s = df_calc[df_calc["Full_Date"].dt.date == d_range[0]]
+    else:
+        df_s = df_calc
 
     t1, t2, t3 = st.tabs(["Performance", "Timeline", "Hall of Fame"])
     
     with t1:
+        # Profit pro Spieler
         df_p = df_s[~df_s["Aktion"].str.contains("Bank", case=False, na=False)]
         if not df_p.empty:
             agg = df_p.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
@@ -404,26 +420,37 @@ elif page == "Statistik":
             st.info("Keine Daten im gewählten Zeitraum.")
             
     with t2:
+        # Timeline (zeigt nun korrekte absolute Balance)
         if not df_s.empty:
             df_h = df_s.sort_values("Full_Date")
-            df_h["Balance"] = df_h["Netto"].cumsum()
             fig_l = px.area(df_h, x="Full_Date", y="Balance")
+            
+            # Y-Achse skalieren für bessere Sichtbarkeit
+            min_y = df_h["Balance"].min()
+            max_y = df_h["Balance"].max()
+            padding = (max_y - min_y) * 0.1 if max_y != min_y else 10
+            
+            fig_l.update_yaxes(range=[min_y - padding, max_y + padding])
             fig_l.update_traces(line_color='#0F172A', fill_color='rgba(15, 23, 42, 0.1)')
             fig_l.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=350, yaxis_title=None, xaxis_title=None)
             st.plotly_chart(fig_l, use_container_width=True)
+        else:
+            st.info("Keine Transaktionen in diesem Zeitraum.")
             
     with t3:
         st.markdown("##### 👤 Spieler-Profil")
         sel_player = st.selectbox("Spieler wählen", VALID_PLAYERS)
         
-        if sel_player and not df.empty:
-            df_play = df[df["Name"] == sel_player].copy()
+        # Berechnung auf ALLES anwenden, nicht nur gefilterte Ansicht
+        if sel_player and not df_calc.empty:
+            df_play = df_calc[df_calc["Name"] == sel_player].copy()
             if not df_play.empty:
                 df_play["Player_Profit"] = -df_play["Netto"]
-                df_play["Date_Only"] = df_play["Full_Date"].dt.date
                 
                 lifetime = df_play["Player_Profit"].sum()
-                df_sess = df_play.groupby("Date_Only")["Player_Profit"].sum().reset_index()
+                
+                # Session-basierte Berechnung (mit Fix für 3 Uhr nachts)
+                df_sess = df_play.groupby("Session_Date")["Player_Profit"].sum().reset_index()
                 
                 best_s = df_sess["Player_Profit"].max() if not df_sess.empty else 0
                 worst_s = df_sess["Player_Profit"].min() if not df_sess.empty else 0
@@ -432,6 +459,7 @@ elif page == "Statistik":
                 if lifetime > 50: badges += "🦈 Hai "
                 if lifetime < -50: badges += "💸 Sponsor "
                 if best_s > 100: badges += "🚀 Moon "
+                if worst_s < -100: badges += "💀 Tilt "
                 
                 st.caption(f"Status: {badges}")
                 
@@ -449,7 +477,7 @@ elif page == "Statistik":
             else:
                 st.info("Keine Daten für diesen Spieler.")
 
-# --- PAGE 4: SETTLEMENT (FIXED) ---
+# --- PAGE 4: SETTLEMENT (CRASH FIX) ---
 elif page == "Kassensturz":
     st.markdown("### 🏁 Abrechnung")
     
@@ -460,18 +488,16 @@ elif page == "Kassensturz":
         secrets_iban = st.text_input("IBAN eingeben:", placeholder="DE...")
         secrets_owner = st.text_input("Empfänger:", value="Casino Bank")
     
-    # --- FIX START ---
-    # Wir erzwingen hier nochmal ein Datetime Format, falls "load_data" bei einem Fehler eine leere Tabelle geliefert hat.
+    # Sicherstellen, dass wir gültige Datumsangaben haben
     df["Full_Date"] = pd.to_datetime(df["Full_Date"], errors='coerce')
     
     today = datetime.now().date()
     
-    # Sicherer Filter: Prüft ob Datum existiert (.notna) BEVOR verglichen wird
+    # Filter: NotNa prüft, ob das Datum gültig ist, bevor .dt aufgerufen wird
     mask_date = (df["Full_Date"].notna()) & (df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)]))
     mask_name = df["Name"].isin(VALID_PLAYERS)
     
     df_sess = df[mask_date & mask_name].copy()
-    # --- FIX END ---
     
     if df_sess.empty:
         st.info("Keine offenen Sessions für Heute oder Gestern.")
