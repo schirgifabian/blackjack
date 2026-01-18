@@ -936,7 +936,8 @@ class BlackjackBankApp:
                     with c2:
                         st.info("Scanne diesen Code mit deiner Banking App.")
                         st.markdown(f"**Betrag:** {abs_amount:.2f}€")
-                        st.markdown(f**Verwendungszweck:** `BJ {name} {datetime.now().strftime('%d.%m.%Y')}")
+                        st.markdown(f"**Verwendungszweck:** `BJ {name} {datetime.now().strftime('%d.%m.%Y')}`")
+
     
     def _generate_qr_code(self, owner: str, iban: str, amount: float, reference: str) -> Image.Image:
         """Generiert EPC-QR-Code"""
