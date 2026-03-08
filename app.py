@@ -158,6 +158,31 @@ st.markdown("""
         background: white !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
+/* iPad WEBAPP NAVIGATION FIX */
+@media (pointer: coarse) {
+    /* Always show hamburger menu on touch devices */
+    div[data-testid="stSidebarCollapsed"] { 
+        visibility: visible !important; 
+        width: auto !important;
+    }
+    
+    /* Ensure toggle is always accessible */
+    button[kind="header"] {
+        z-index: 999999 !important;
+    }
+    
+    /* Add padding-top to prevent content overlap */
+    .stApp {
+        padding-top: 60px;
+    }
+}
+
+/* Fix for iOS Safari standalone mode */
+@media display-mode: standalone {
+    .stApp {
+        padding-top: 70px !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -198,6 +223,12 @@ df, conn = load_data()
 balance = df["Netto"].sum() if not df.empty else 0.0
 
 # --- 4. NAVIGATION ---
+# iPad Webapp Fix: Always visible menu toggle
+if st.session_state.get('_sidebar_collapsed', False):
+    if st.button("☰ Menü", key="ipad_nav_toggle"):
+        st.session_state._sidebar_collapsed = False
+        st.rerun()
+
 with st.sidebar:
     st.markdown("### ♠️ Navigation")
     page = st.radio("Go to", ["Übersicht", "Transaktion", "Statistik", "Kassensturz"], label_visibility="collapsed")
@@ -365,6 +396,18 @@ elif page == "Transaktion":
 
 # --- PAGE 3: STATS (FIXED & OPTIMIZED) ---
 elif page == "Statistik":
+    # CRASH FIX: Empty dataframe check
+    if df.empty or df_calc.empty:
+        st.info("📊 Noch keine Daten vorhanden.")
+        st.stop()
+    
+    # Additional safety: Check for all-NaT dates
+    if df_calc["Full_Date"].isna().all():
+        st.warning("⚠️ Ungültige Datumsangaben in den Daten.")
+        st.stop()
+    
+    st.markdown("### 📊 Deep Analytics") (FIXED & OPTIMIZED) ---
+elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
     
     # 1. Globale Balance-Historie berechnen (BEVOR gefiltert wird)
@@ -378,6 +421,10 @@ elif page == "Statistik":
         return dt.date() - timedelta(days=1) if dt.hour < 6 else dt.date()
 
     df_calc["Session_Date"] = df_calc["Full_Date"].apply(get_session_date)
+    
+    # FILTER FIX: Leere Daten abfangen
+    if df_calc.empty:
+        df_calc = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto", "Full_Date", "Session_Date", "Balance"])
 
     # 3. Filter anwenden
     filter_options = ["Aktuelle Session", "Gesamt", "Dieser Monat", "Benutzerdefiniert"]
