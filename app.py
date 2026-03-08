@@ -141,7 +141,17 @@ st.markdown("""
     }
 
     /* HIDE DECORATIONS */
-    #MainMenu, footer, header {visibility: hidden;}
+    #MainMenu, footer {visibility: hidden;}
+
+/* Ensure menu toggle is always visible */
+header button[data-testid="baseButton-header"],
+[data-testid="stSidebarCollapsed"],
+[data-testid="stSidebar"] > div:first-child button {
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: block !important;
+    z-index: 999999 !important;
+}
 
     /* TABS */
     .stTabs [data-baseweb="tab-list"] {
