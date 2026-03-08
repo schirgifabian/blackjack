@@ -419,7 +419,6 @@ elif page == "Transaktion":
                     except Exception as e:
                         st.error(f"Fehler: {e}")
 
-# --- PAGE 3: STATS (FIXED & OPTIMIZED) ---
 elif page == "Statistik":
     # CRASH FIX: Empty dataframe check
     if df.empty or df_calc.empty:
@@ -431,19 +430,6 @@ elif page == "Statistik":
         st.warning("⚠️ Ungültige Datumsangaben in den Daten.")
         st.stop()
     
-    st.markdown("### 📊 Deep Analytics") (FIXED & OPTIMIZED) ---
-elif page == "Statistik":
-    # CRASH FIX: Empty dataframe check
-    if df.empty or df_calc.empty:
-        st.info("📊 Noch keine Daten vorhanden.")
-        st.stop()
-    
-    # Additional safety: Check for all-NaT dates
-    if df_calc["Full_Date"].isna().all():
-        st.warning("⚠️ Ungültige Datumsangaben in den Daten.")
-        st.stop()
-    
-    st.markdown("### 📊 Deep Analytics") (FIXED & OPTIMIZED) ---
 elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
     
