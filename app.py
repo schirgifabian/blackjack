@@ -153,6 +153,12 @@ header button[data-testid="baseButton-header"],
     z-index: 999999 !important;
 }
 
+/* Header background same as app background */
+.stApp > header {
+    background: radial-gradient(circle at top left, #F8FAFC, #E2E8F0) !important;
+    background-color: transparent !important;
+}
+
 /* HIDE top-right icons (GitHub, Share, etc.) but keep menu toggle */
 header .stButton button[title*="GitHub"],
 header .stButton button[title*="Share"],
@@ -512,7 +518,7 @@ elif page == "Statistik":
             padding = (max_y - min_y) * 0.1 if max_y != min_y else 10
 
             fig_l.update_yaxes(range=[min_y - padding, max_y + padding])
-            fig_l.update_traces(line_color='#0F172A', fill_color='rgba(15, 23, 42, 0.1)')
+            fig_l.update_traces(line_color='#0F172A', fill='tozeroy', fillcolor='rgba(15, 23, 42, 0.1)')
             fig_l.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=350, yaxis_title=None, xaxis_title=None)
             st.plotly_chart(fig_l, use_container_width=True)
         else:
