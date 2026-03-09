@@ -153,6 +153,14 @@ header button[data-testid="baseButton-header"],
     z-index: 999999 !important;
 }
 
+/* HIDE top-right icons (GitHub, Share, etc.) but keep menu toggle */
+header .stButton button[title*="GitHub"],
+header .stButton button[title*="Share"],
+header button[kind="header"]:not([data-testid="baseButton-header"]) {
+    display: none !important;
+    visibility: hidden !important;
+}
+
     /* TABS */
     .stTabs [data-baseweb="tab-list"] {
         background: rgba(255,255,255,0.5);
