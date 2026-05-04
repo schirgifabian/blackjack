@@ -59,11 +59,32 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
+    .stApp, .stApp p, .stApp span, .stApp div, .stApp label, .stApp li {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    
     .stApp {
         background: radial-gradient(circle at top left, #F8FAFC, #E2E8F0);
-        font-family: 'Inter', sans-serif;
         color: #0F172A;
     }
+
+    /* Monospace Ausnahmen behalten (für Zahlen) */
+    .vault-amount, .metric-value, .stMarkdown code, div[data-testid="column"] button {
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    /* Gekapselte Überschriften: zentriert, mehr Abstand, größer */
+    h1, h2, h3 {
+        text-align: center !important;
+        margin-top: 1.5rem !important;
+        margin-bottom: 1.5rem !important;
+        font-weight: 700 !important;
+        letter-spacing: -1px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    h1 { font-size: 3.2rem !important; margin-top: 2.5rem !important; }
+    h2 { font-size: 2.6rem !important; margin-top: 2rem !important; }
+    h3 { font-size: 2.0rem !important; }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: rgba(255, 255, 255, 0.7);
@@ -456,7 +477,7 @@ balance = df["Netto"].sum() if not df.empty else 0.0
 
 # --- 4. NAVIGATION ---
 with st.sidebar:
-    st.markdown("### ♠️ Navigation")
+    st.markdown("### Navigation")
     page = st.radio(
         "Go to",
         ["Übersicht", "Transaktion", "Statistik", "Achievements", "Kassensturz"],
@@ -465,19 +486,19 @@ with st.sidebar:
     st.markdown("---")
 
     # Session-Steuerung
-    st.markdown("#### 🎰 Session")
+    st.markdown("#### Session")
     if st.session_state.active_session_id:
         st.success(f"Aktiv: `{st.session_state.active_session_id[:8]}`")
-        if st.button("⚡ Fast Mode öffnen", use_container_width=True, type="primary"):
+        if st.button("Fast Mode öffnen", use_container_width=True, type="primary"):
             st.session_state.fast_mode_active = True
             st.rerun()
-        if st.button("⏹️ Session beenden", use_container_width=True):
+        if st.button("Session beenden", use_container_width=True):
             st.session_state.active_session_id = None
             st.session_state.fast_mode_active = False
             st.toast("Session beendet")
             st.rerun()
     else:
-        if st.button("▶️ Session starten", use_container_width=True, type="primary"):
+        if st.button("Session starten", use_container_width=True, type="primary"):
             st.session_state.active_session_id = uuid.uuid4().hex[:12]
             st.session_state.fast_mode_active = True
             st.session_state.fast_mode_player = None
@@ -485,7 +506,7 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-    if st.button("🔄 Sync", use_container_width=True):
+    if st.button("Sync", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -734,7 +755,7 @@ if page == "Übersicht":
             else:
                 st.session_state.last_booking = None
 
-        st.markdown("##### 📡 Live Feed")
+        st.markdown("##### Live Feed")
         for _, row in df.head(5).iterrows():
             icon = "📥" if "Einzahlung" in str(row["Aktion"]) else "📤" if "Auszahlung" in str(row["Aktion"]) else "🏦"
             color = "#10B981" if row["Netto"] > 0 else "#EF4444"
@@ -754,7 +775,7 @@ if page == "Übersicht":
             </div>
             """, unsafe_allow_html=True)
 
-        st.markdown("##### 👑 Leaderboard")
+        st.markdown("##### Leaderboard")
         df_p = df[~df["Aktion"].astype(str).str.contains("Bank", case=False, na=False)]
         if not df_p.empty:
             lb = df_p.groupby("Name")["Netto"].sum().mul(-1).sort_values(ascending=False).head(3)
@@ -778,7 +799,7 @@ if page == "Übersicht":
 
 # --- PAGE 2: TRANSAKTION ---
 elif page == "Transaktion":
-    st.markdown("### 🎲 Quick Action")
+    st.markdown("### Quick Action")
 
     if not st.session_state.active_session_id:
         st.info("💡 Tipp: Starte links eine Session, damit Buchungen sauber zugeordnet werden.")
@@ -800,7 +821,7 @@ elif page == "Transaktion":
 
     # 2. BETRAG
     with st.container(border=True):
-        st.caption("💰 BETRAG")
+        st.caption("BETRAG")
         cols = st.columns(len(CHIP_VALUES))
         for i, val in enumerate(CHIP_VALUES):
             cols[i].button(f"{val}", key=f"btn_{val}", on_click=set_amount, args=(val,), use_container_width=True)
@@ -816,14 +837,14 @@ elif page == "Transaktion":
         ntfy_tag = "moneybag"
 
         with c1:
-            if st.button("📥 Einzahlen (Kaufen)", type="primary", use_container_width=True):
+            if st.button("Einzahlen (Kaufen)", type="primary", use_container_width=True):
                 typ, ntfy_tag, action_triggered = "Einzahlung", "moneybag", True
-            if st.button("📈 Bank Gewinn", type="secondary", use_container_width=True):
+            if st.button("Bank Gewinn", type="secondary", use_container_width=True):
                 typ, ntfy_tag, action_triggered = "Bank Einnahme", "moneybag", True
         with c2:
-            if st.button("📤 Auszahlen (Tauschen)", type="primary", use_container_width=True):
+            if st.button("Auszahlen (Tauschen)", type="primary", use_container_width=True):
                 typ, ntfy_tag, action_triggered = "Auszahlung", "chart_with_downwards_trend", True
-            if st.button("💸 Bank Verlust", type="secondary", use_container_width=True):
+            if st.button("Bank Verlust", type="secondary", use_container_width=True):
                 typ, ntfy_tag, action_triggered = "Bank Ausgabe", "chart_with_downwards_trend", True
 
         if action_triggered:
@@ -862,7 +883,7 @@ elif page == "Transaktion":
 
 # --- PAGE 3: STATISTIK ---
 elif page == "Statistik":
-    st.markdown("### 📊 Deep Analytics")
+    st.markdown("### Deep Analytics")
 
     df_calc = df.sort_values("Full_Date").copy() if not df.empty else df.copy()
     if not df_calc.empty:
@@ -1052,7 +1073,7 @@ elif page == "Statistik":
 
     # --- TAB 5: Profil ---
     with t5:
-        st.markdown("##### 👤 Spieler-Profil")
+        st.markdown("##### Spieler-Profil")
         sel_player = st.selectbox("Spieler wählen", VALID_PLAYERS)
 
         if sel_player and not df.empty:
@@ -1100,7 +1121,7 @@ elif page == "Statistik":
 
 # --- PAGE 4: ACHIEVEMENTS ---
 elif page == "Achievements":
-    st.markdown("### 🏆 Hall of Fame")
+    st.markdown("### Hall of Fame")
 
     if df.empty:
         st.info("Noch keine Daten – sammelt erst ein paar Sessions.")
@@ -1133,7 +1154,7 @@ elif page == "Achievements":
 
 # --- PAGE 5: KASSENSTURZ ---
 elif page == "Kassensturz":
-    st.markdown("### 🏁 Abrechnung")
+    st.markdown("### Abrechnung")
 
     secrets_iban = st.secrets.get("bank", {}).get("iban", "")
     secrets_owner = st.secrets.get("bank", {}).get("owner", "Bank")
