@@ -519,34 +519,41 @@ if st.session_state.get("fast_mode_active"):
 
         /* 1. Globaler Button Style (Zurück / Close) */
         button {
-            height: 100px !important;
-            border-radius: 28px !important;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
-            border: 2px solid rgba(255,255,255,0.8) !important;
-            background: rgba(255, 255, 255, 0.6) !important;
+            height: 64px !important;
+            border-radius: 20px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04) !important;
+            border: 1px solid rgba(203, 213, 225, 0.6) !important;
+            background: rgba(255, 255, 255, 0.7) !important;
             backdrop-filter: blur(12px) !important;
             -webkit-backdrop-filter: blur(12px) !important;
             width: 100% !important;
+            transition: all 0.2s ease !important;
         }
         button p, button div {
-            font-size: 28px !important;
-            font-weight: 700 !important;
-            color: #334155 !important;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            font-family: 'Inter', sans-serif !important;
+            color: #475569 !important;
             margin: 0 !important;
         }
+        button:hover {
+            background: white !important;
+            border-color: #94A3B8 !important;
+            transform: translateY(-2px) !important;
+        }
 
-        /* 2. Kassen-Buttons im Grid (stHorizontalBlock) */
-        div[data-testid="stHorizontalBlock"] button {
+        /* 2. Kassen-Buttons im Grid (nur in Reihen mit mind. 4 Spalten) */
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button {
             aspect-ratio: 1 / 1 !important;
             height: auto !important;
             min-height: 0 !important;
-            border-radius: 40px !important;
+            border-radius: 36px !important;
             background: rgba(255, 255, 255, 0.85) !important;
             backdrop-filter: blur(20px) !important;
             -webkit-backdrop-filter: blur(20px) !important;
-            border: 2px solid rgba(255, 255, 255, 0.9) !important;
-            box-shadow: 0 20px 50px rgba(31, 38, 135, 0.08), inset 0 4px 10px rgba(255,255,255,0.6) !important;
-            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* Springy Animation */
+            border: 1px solid rgba(255, 255, 255, 0.9) !important;
+            box-shadow: 0 16px 40px rgba(31, 38, 135, 0.05), inset 0 2px 8px rgba(255,255,255,0.8) !important;
+            transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* Springy Animation */
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
@@ -554,76 +561,81 @@ if st.session_state.get("fast_mode_active"):
             width: 100% !important;
         }
         
-        div[data-testid="stHorizontalBlock"] button p, 
-        div[data-testid="stHorizontalBlock"] button div {
-            font-size: 52px !important; 
-            font-weight: 800 !important;
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button p, 
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button div {
+            font-size: 44px !important; 
+            font-weight: 600 !important;
             font-family: 'Inter', sans-serif !important;
-            color: #0F172A !important;
+            letter-spacing: -1px !important;
+            color: #1E293B !important;
             margin: 0 !important;
             line-height: 1.2 !important;
         }
         
         @media (max-width: 800px) {
-            div[data-testid="stHorizontalBlock"] button {
+            div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button {
                 border-radius: 24px !important;
                 padding: 12px !important;
             }
-            div[data-testid="stHorizontalBlock"] button p,
-            div[data-testid="stHorizontalBlock"] button div {
-                font-size: 32px !important;
+            div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button p,
+            div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button div {
+                font-size: 28px !important;
             }
         }
 
         /* Hover & Active States für Premium Touch Feeling */
-        div[data-testid="stHorizontalBlock"] button:hover {
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button:hover {
             background: rgba(255, 255, 255, 1) !important;
             border-color: #10B981 !important;
             transform: translateY(-6px) scale(1.02) !important;
-            box-shadow: 0 24px 50px rgba(16,185,129,0.2), inset 0 4px 10px rgba(255,255,255,0.8) !important;
+            box-shadow: 0 20px 40px rgba(16,185,129,0.15), inset 0 4px 10px rgba(255,255,255,0.8) !important;
         }
-        div[data-testid="stHorizontalBlock"] button:hover p,
-        div[data-testid="stHorizontalBlock"] button:hover div {
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button:hover p,
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button:hover div {
             color: #059669 !important;
         }
 
-        div[data-testid="stHorizontalBlock"] button:active {
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button:active {
             transform: scale(0.92) !important;
             background: rgba(209, 250, 229, 0.9) !important;
             border-color: #059669 !important;
-            box-shadow: 0 8px 20px rgba(16,185,129,0.15), inset 0 2px 5px rgba(255,255,255,0.4) !important;
+            box-shadow: 0 8px 20px rgba(16,185,129,0.1), inset 0 2px 5px rgba(255,255,255,0.4) !important;
         }
 
         /* Spalten-Abstand an Kassenlayout anpassen */
-        div[data-testid="stHorizontalBlock"] {
-            gap: 2.5rem !important; 
-            margin-bottom: 2.5rem !important;
-            padding: 1rem !important;
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) {
+            gap: 2rem !important; 
+            margin-bottom: 2rem !important;
+            padding: 0.5rem !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
     p_name = st.session_state.get("fast_mode_player")
 
-    # Header als reines HTML + separate Streamlit-Buttons (NICHT in columns)
-    back_label = f"⬅️ {p_name}" if p_name else ""
-    st.markdown(f"""
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0; margin-bottom: 20px;">
-        <div style="font-size: 26px; color: #64748B; font-weight: 600;">{back_label}</div>
-        <h1 style="margin: 0; font-size: 42px;">⚡ Fast Booking</h1>
-        <div style="width: 100px;"></div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Header & Action Button nebeneinander
+    header_col, btn_col = st.columns([4, 1], gap="medium")
+    
+    with header_col:
+        back_label = f"<span style='font-size:24px; color:#64748B; margin-right:12px;'>⬅️ {p_name}</span>" if p_name else ""
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; padding: 12px 0 0 12px; margin-bottom: 20px;">
+            <h1 style="margin: 0; font-size: 42px; font-weight: 700; color: #0F172A; letter-spacing: -1px;">
+                {back_label}⚡ Fast Booking
+            </h1>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Zurück / Close als normale Streamlit Buttons (klein, ohne Spalten)
-    if p_name is not None:
-        if st.button("⬅️ Zurück zur Spielerauswahl", key="back_fast", use_container_width=True):
-            st.session_state.fast_mode_player = None
-            st.rerun()
-    else:
-        if st.button("✖ Fast Booking schließen", key="close_fast", use_container_width=True):
-            st.session_state.fast_mode_active = False
-            st.rerun()
+    with btn_col:
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        if p_name is not None:
+            if st.button("⬅️ Zurück", key="back_fast", use_container_width=True):
+                st.session_state.fast_mode_player = None
+                st.rerun()
+        else:
+            if st.button("✖ Schließen", key="close_fast", use_container_width=True):
+                st.session_state.fast_mode_active = False
+                st.rerun()
 
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
