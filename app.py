@@ -32,6 +32,12 @@ if 'last_booking' not in st.session_state:
     st.session_state.last_booking = None  # {'id': ..., 'time': datetime, 'summary': str}
 if 'active_session_id' not in st.session_state:
     st.session_state.active_session_id = None
+if 'reset_amount' not in st.session_state:
+    st.session_state.reset_amount = False
+
+if st.session_state.reset_amount:
+    st.session_state.trans_amount = 10.0
+    st.session_state.reset_amount = False
 
 def set_amount(val):
     st.session_state.trans_amount = float(val)
@@ -630,7 +636,7 @@ elif page == "Transaktion":
                             st.balloons()
 
                         # Reset Betrag auf Default
-                        st.session_state.trans_amount = 10.0
+                        st.session_state.reset_amount = True
                         st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
