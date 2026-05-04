@@ -24,7 +24,6 @@ TZ = pytz.timezone('Europe/Berlin')
 # Session-Cutoff: Buchungen vor 6 Uhr morgens zählen zum Vortag
 SESSION_HOUR_CUTOFF = 6
 UNDO_WINDOW_SECONDS = 60
-FAST_UNDO_WINDOW_SECONDS = 30
 
 # --- SESSION STATE SETUP ---
 if 'trans_amount' not in st.session_state:
@@ -653,17 +652,8 @@ if st.session_state.get("fast_mode_active"):
 
     p_name = st.session_state.get("fast_mode_player")
 
-    # Header & Action Buttons nebeneinander
-    # Prüfe ob ein Undo im FastMode verfügbar ist (30s Fenster)
-    fast_undo_available = False
-    fast_undo_remaining = 0
-    if st.session_state.last_booking and p_name is None:
-        elapsed = (datetime.now(TZ) - st.session_state.last_booking['time']).total_seconds()
-        if elapsed < FAST_UNDO_WINDOW_SECONDS:
-            fast_undo_available = True
-            fast_undo_remaining = int(FAST_UNDO_WINDOW_SECONDS - elapsed)
-
-    header_col, undo_col, multi_col, btn_col = st.columns([5, 1.5, 1.5, 1.5], gap="medium")
+    # Header & Action Button nebeneinander
+    header_col, multi_col, btn_col = st.columns([5, 1.5, 1.5], gap="medium")
     
     with header_col:
         if st.session_state.fast_mode_multi and p_name is None:
@@ -679,17 +669,6 @@ if st.session_state.get("fast_mode_active"):
             </h1>
         </div>
         """, unsafe_allow_html=True)
-
-    with undo_col:
-        if fast_undo_available:
-            if st.button(f"Undo ({fast_undo_remaining}s)", key="fast_undo", use_container_width=True):
-                if delete_booking(conn, st.session_state.last_booking['id']):
-                    st.toast("Buchung rückgängig gemacht")
-                    st.session_state.last_booking = None
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("Fehler beim Rückgängigmachen")
 
     with multi_col:
         if p_name is None:
