@@ -506,10 +506,11 @@ if st.session_state.get("fast_mode_active"):
             max-width: 100% !important;
         }
 
-        /* ALLE Buttons in Spalten → riesig machen */
+        /* ALLE Buttons in Spalten → quadratisch & riesig */
         div[data-testid="column"] button {
-            height: 35vh !important;
-            min-height: 150px !important;
+            aspect-ratio: 1 / 1 !important;
+            height: auto !important;
+            min-height: 0 !important;
             font-size: 42px !important;
             font-weight: 800 !important;
             font-family: 'Inter', sans-serif !important;
