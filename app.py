@@ -38,6 +38,10 @@ if 'fast_mode_active' not in st.session_state:
     st.session_state.fast_mode_active = False
 if 'fast_mode_player' not in st.session_state:
     st.session_state.fast_mode_player = None
+if 'fast_mode_multi' not in st.session_state:
+    st.session_state.fast_mode_multi = False
+if 'fast_mode_selected_players' not in st.session_state:
+    st.session_state.fast_mode_selected_players = []
 
 if st.session_state.reset_amount:
     st.session_state.trans_amount = 10.0
@@ -74,17 +78,20 @@ st.markdown("""
     }
 
     /* Gekapselte Überschriften: zentriert, mehr Abstand, größer */
-    h1, h2, h3 {
-        text-align: center !important;
-        margin-top: 1.5rem !important;
-        margin-bottom: 1.5rem !important;
+    h1, h2, h3, h4, h5 {
+        display: flex !important;
+        justify-content: center !important;
+        margin-top: 2.5rem !important;
+        margin-bottom: 2rem !important;
         font-weight: 700 !important;
         letter-spacing: -1px !important;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
     }
-    h1 { font-size: 3.2rem !important; margin-top: 2.5rem !important; }
-    h2 { font-size: 2.6rem !important; margin-top: 2rem !important; }
-    h3 { font-size: 2.0rem !important; }
+    h1 { font-size: 3.2rem !important; margin-top: 3rem !important; }
+    h2 { font-size: 2.6rem !important; }
+    h3 { font-size: 2.2rem !important; }
+    h4 { font-size: 1.8rem !important; }
+    h5 { font-size: 1.4rem !important; }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: rgba(255, 255, 255, 0.7);
@@ -551,7 +558,7 @@ if st.session_state.get("fast_mode_active"):
             transition: all 0.2s ease !important;
         }
         button p, button div {
-            font-size: 20px !important;
+            font-size: 24px !important;
             font-weight: 600 !important;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
             color: #475569 !important;
@@ -635,27 +642,45 @@ if st.session_state.get("fast_mode_active"):
     p_name = st.session_state.get("fast_mode_player")
 
     # Header & Action Button nebeneinander
-    header_col, btn_col = st.columns([5, 1], gap="large")
+    header_col, multi_col, btn_col = st.columns([5, 1.5, 1.5], gap="medium")
     
     with header_col:
-        title_text = f"Einzahlung für {p_name}" if p_name else "Fast Booking"
+        if st.session_state.fast_mode_multi and p_name is None:
+            n_sel = len(st.session_state.fast_mode_selected_players)
+            title_text = f"Sammelbuchung ({n_sel})" if n_sel > 0 else "Multiauswahl"
+        else:
+            title_text = f"Einzahlung für {p_name}" if p_name and p_name != "Multi" else "Fast Booking"
+            
         st.markdown(f"""
-        <div style="display: flex; align-items: center; padding: 12px 0 0 12px; margin-bottom: 20px;">
-            <h1 style="margin: 0; font-size: 42px; font-weight: 700; color: #0F172A; letter-spacing: -2px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <div style="display: flex; align-items: center; height: 64px; margin-bottom: 20px;">
+            <h1 style="margin: 0; font-size: 40px; font-weight: 700; color: #0F172A; letter-spacing: -1px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
                 {title_text}
             </h1>
         </div>
         """, unsafe_allow_html=True)
 
+    with multi_col:
+        if p_name is None:
+            btn_type = "primary" if st.session_state.fast_mode_multi else "secondary"
+            if st.button("Multi", key="toggle_multi", use_container_width=True, type=btn_type):
+                st.session_state.fast_mode_multi = not st.session_state.fast_mode_multi
+                st.session_state.fast_mode_selected_players = []
+                st.rerun()
+
     with btn_col:
-        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         if p_name is not None:
             if st.button("Zurück", key="back_fast", use_container_width=True):
                 st.session_state.fast_mode_player = None
                 st.rerun()
+        elif st.session_state.fast_mode_multi and len(st.session_state.fast_mode_selected_players) > 0:
+            if st.button("Weiter", key="proceed_multi", use_container_width=True, type="primary"):
+                st.session_state.fast_mode_player = "Multi"
+                st.rerun()
         else:
             if st.button("✖", key="close_fast", use_container_width=True):
                 st.session_state.fast_mode_active = False
+                st.session_state.fast_mode_multi = False
+                st.session_state.fast_mode_selected_players = []
                 st.rerun()
 
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
@@ -669,9 +694,21 @@ if st.session_state.get("fast_mode_active"):
                 if idx < len(players):
                     p = players[idx]
                     with cols[col_idx]:
-                        if st.button(p, key=f"fp_{p}", use_container_width=True):
-                            st.session_state.fast_mode_player = p
-                            st.rerun()
+                        if st.session_state.fast_mode_multi and p != "Alle":
+                            is_sel = p in st.session_state.fast_mode_selected_players
+                            if st.button(p, key=f"fp_{p}", use_container_width=True, type="primary" if is_sel else "secondary"):
+                                if is_sel:
+                                    st.session_state.fast_mode_selected_players.remove(p)
+                                else:
+                                    st.session_state.fast_mode_selected_players.append(p)
+                                st.rerun()
+                        else:
+                            if st.button(p, key=f"fp_{p}", use_container_width=True):
+                                if p == "Alle":
+                                    st.session_state.fast_mode_player = "Alle"
+                                else:
+                                    st.session_state.fast_mode_player = p
+                                st.rerun()
             if row == 0:
                 st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
     else:
@@ -685,15 +722,16 @@ if st.session_state.get("fast_mode_active"):
                     with cols[col_idx]:
                         if st.button(f"{amt} €", key=f"fa_{amt}", use_container_width=True):
                             with st.spinner("Buche..."):
-                                if p_name == "Alle":
-                                    for p in VALID_PLAYERS:
+                                if p_name == "Alle" or p_name == "Multi":
+                                    targets = VALID_PLAYERS if p_name == "Alle" else st.session_state.fast_mode_selected_players
+                                    for p in targets:
                                         write_booking(
                                             conn, p, "Einzahlung", float(amt), st.session_state.active_session_id
                                         )
                                     st.session_state.last_booking = None  # Undo für Sammelbuchung deaktivieren
                                     if amt >= 50:
-                                        send_ntfy("Sammel-Einzahlung", f"ALLE (7x): {amt:.2f}€", "moneybag")
-                                    st.toast(f"✅ {amt:.2f}€ für ALLE ({len(VALID_PLAYERS)}x) verbucht!", icon="♠️")
+                                        send_ntfy("Sammel-Einzahlung", f"{'ALLE' if p_name=='Alle' else 'MULTI'} ({len(targets)}x): {amt:.2f}€", "moneybag")
+                                    st.toast(f"✅ {amt:.2f}€ für {len(targets)} Spieler verbucht!", icon="♠️")
                                 else:
                                     booking_id, now = write_booking(
                                         conn, p_name, "Einzahlung", float(amt), st.session_state.active_session_id
@@ -708,6 +746,9 @@ if st.session_state.get("fast_mode_active"):
                                     st.toast(f"✅ {amt:.2f}€ für {p_name} eingezahlt", icon="♠️")
                                 
                                 st.session_state.fast_mode_player = None
+                                if p_name == "Multi":
+                                    st.session_state.fast_mode_multi = False
+                                    st.session_state.fast_mode_selected_players = []
                                 st.cache_data.clear()
                                 st.rerun()
     st.stop()
