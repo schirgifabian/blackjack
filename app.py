@@ -494,6 +494,17 @@ with st.sidebar:
 if st.session_state.get("fast_mode_active"):
     st.markdown("""
     <style>
+        /* iPad Touch-Optimierungen */
+        * {
+            -webkit-tap-highlight-color: transparent !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+
+        button {
+            touch-action: manipulation !important; /* Verhindert Double-Tap Zoom */
+        }
+
         /* Vollbild-Modus: Alles ausblenden */
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
@@ -502,42 +513,65 @@ if st.session_state.get("fast_mode_active"):
         footer { display: none !important; }
 
         .block-container {
-            padding: 0.5rem 1.5rem !important;
+            padding: 2rem !important;
             max-width: 100% !important;
         }
 
-        /* ALLE Buttons in Spalten → quadratisch & riesig */
-        div[data-testid="column"] button {
+        /* Zurück / Close Buttons (außerhalb Grid) */
+        div.stButton > button {
+            height: 90px !important;
+            font-size: 28px !important;
+            font-weight: 700 !important;
+            border-radius: 24px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+        }
+
+        /* ALLE Buttons in Spalten → quadratisch & riesig (Kassen-Style) */
+        div[data-testid="column"] div.stButton > button {
             aspect-ratio: 1 / 1 !important;
             height: auto !important;
             min-height: 0 !important;
-            font-size: 42px !important;
+            font-size: 56px !important; /* Deutlich größer für iPad */
             font-weight: 800 !important;
             font-family: 'Inter', sans-serif !important;
-            border-radius: 28px !important;
+            border-radius: 32px !important;
             border: 4px solid #CBD5E1 !important;
             background: white !important;
             color: #0F172A !important;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
-            transition: all 0.15s ease !important;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.08) !important;
+            transition: all 0.1s ease !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
+            padding: 24px !important; /* Viel Padding für Touch-Target */
+            width: 100% !important;
         }
-        div[data-testid="column"] button:hover {
+        
+        @media (max-width: 800px) {
+            div[data-testid="column"] div.stButton > button {
+                font-size: 32px !important; /* Fallback für kleine Screens */
+                border-radius: 20px !important;
+                padding: 12px !important;
+            }
+        }
+
+        div[data-testid="column"] div.stButton > button:hover {
             border-color: #10B981 !important;
             background: #F0FDF4 !important;
-            box-shadow: 0 12px 32px rgba(16,185,129,0.2) !important;
-            transform: translateY(-2px) !important;
+            transform: scale(1.02) !important;
+            box-shadow: 0 20px 40px rgba(16,185,129,0.2) !important;
         }
-        div[data-testid="column"] button:active {
-            transform: scale(0.97) !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+        div[data-testid="column"] div.stButton > button:active {
+            transform: scale(0.95) !important;
+            background: #D1FAE5 !important;
+            border-color: #059669 !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1) !important;
         }
 
         /* Spalten-Abstand vergrößern */
         div[data-testid="stHorizontalBlock"] {
-            gap: 20px !important;
+            gap: 2rem !important; /* Größere Gaps zwischen den Quadraten */
+            margin-bottom: 2rem !important;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -547,10 +581,10 @@ if st.session_state.get("fast_mode_active"):
     # Header als reines HTML + separate Streamlit-Buttons (NICHT in columns)
     back_label = f"⬅️ {p_name}" if p_name else ""
     st.markdown(f"""
-    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0; margin-bottom: 8px;">
-        <div style="font-size: 22px; color: #64748B; font-weight: 600;">{back_label}</div>
-        <h1 style="margin: 0; font-size: 28px;">⚡ Fast Booking</h1>
-        <div style="width: 80px;"></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0; margin-bottom: 20px;">
+        <div style="font-size: 26px; color: #64748B; font-weight: 600;">{back_label}</div>
+        <h1 style="margin: 0; font-size: 42px;">⚡ Fast Booking</h1>
+        <div style="width: 100px;"></div>
     </div>
     """, unsafe_allow_html=True)
 
