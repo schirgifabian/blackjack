@@ -59,8 +59,13 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
-    .stApp, .stApp p, .stApp span, .stApp div, .stApp label, .stApp li {
+    .stApp, .stApp p, .stApp span:not([class*="material"]), .stApp div, .stApp label, .stApp li {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    
+    /* Icons wiederherstellen */
+    span[class*="material"], .material-symbols-rounded, .material-icons {
+        font-family: "Material Symbols Rounded", "Material Icons", sans-serif !important;
     }
     
     .stApp {
