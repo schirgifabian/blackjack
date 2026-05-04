@@ -494,72 +494,79 @@ with st.sidebar:
 if st.session_state.get("fast_mode_active"):
     st.markdown("""
     <style>
-        /* Vollbild-Modus erzwingen */
+        /* Vollbild-Modus: Alles ausblenden */
         [data-testid="stSidebar"] { display: none !important; }
         [data-testid="stHeader"] { display: none !important; }
         [data-testid="stToolbar"] { display: none !important; }
-        
+        #MainMenu { display: none !important; }
+        footer { display: none !important; }
+
         .block-container {
-            padding: 1rem 1rem !important;
+            padding: 0.5rem 1.5rem !important;
             max-width: 100% !important;
         }
 
-        /* Riesige Grid Buttons (Reihen 2 und 3) */
-        div[data-testid="stHorizontalBlock"]:nth-of-type(n+2) button {
-            height: 38vh !important;
-            font-size: 56px !important;
+        /* ALLE Buttons in Spalten → riesig machen */
+        div[data-testid="column"] button {
+            height: 35vh !important;
+            min-height: 150px !important;
+            font-size: 42px !important;
             font-weight: 800 !important;
-            border-radius: 32px !important;
-            border: 4px solid #E2E8F0 !important;
-            transition: all 0.2s;
-            background-color: white !important;
+            font-family: 'Inter', sans-serif !important;
+            border-radius: 28px !important;
+            border: 4px solid #CBD5E1 !important;
+            background: white !important;
             color: #0F172A !important;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.08) !important;
-            margin: 0 !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
+            transition: all 0.15s ease !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
-        div[data-testid="stHorizontalBlock"]:nth-of-type(n+2) button:hover {
+        div[data-testid="column"] button:hover {
             border-color: #10B981 !important;
-            background-color: #F8FAFC !important;
-            transform: scale(1.02);
-            box-shadow: 0 20px 45px rgba(16, 185, 129, 0.25) !important;
+            background: #F0FDF4 !important;
+            box-shadow: 0 12px 32px rgba(16,185,129,0.2) !important;
+            transform: translateY(-2px) !important;
+        }
+        div[data-testid="column"] button:active {
+            transform: scale(0.97) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
         }
 
-        /* X Button & Zurück Button (Header Reihe 1) */
-        div[data-testid="stHorizontalBlock"]:nth-of-type(1) button {
-            background: transparent !important;
-            border: none !important;
-            color: #94A3B8 !important;
-            font-size: 40px !important;
-            box-shadow: none !important;
-            height: auto !important;
-            padding: 0px !important;
-        }
-        div[data-testid="stHorizontalBlock"]:nth-of-type(1) button:hover {
-            color: #EF4444 !important;
-            background: transparent !important;
-            transform: scale(1.1);
+        /* Spalten-Abstand vergrößern */
+        div[data-testid="stHorizontalBlock"] {
+            gap: 20px !important;
         }
     </style>
     """, unsafe_allow_html=True)
-    
+
     p_name = st.session_state.get("fast_mode_player")
-    
-    c_back, c_title, c_close = st.columns([2, 8, 1])
-    with c_back:
-        if p_name is not None:
-            if st.button("⬅️ Zurück", key="back_fast"):
-                st.session_state.fast_mode_player = None
-                st.rerun()
-    with c_title:
-        st.markdown("<h1 style='margin-top: 0; margin-bottom: 20px; text-align: center;'>⚡ Fast Booking</h1>", unsafe_allow_html=True)
-    with c_close:
-        if st.button("✖", key="close_fast"):
+
+    # Header als reines HTML + separate Streamlit-Buttons (NICHT in columns)
+    back_label = f"⬅️ {p_name}" if p_name else ""
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0; margin-bottom: 8px;">
+        <div style="font-size: 22px; color: #64748B; font-weight: 600;">{back_label}</div>
+        <h1 style="margin: 0; font-size: 28px;">⚡ Fast Booking</h1>
+        <div style="width: 80px;"></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Zurück / Close als normale Streamlit Buttons (klein, ohne Spalten)
+    if p_name is not None:
+        if st.button("⬅️ Zurück zur Spielerauswahl", key="back_fast", use_container_width=True):
+            st.session_state.fast_mode_player = None
+            st.rerun()
+    else:
+        if st.button("✖ Fast Booking schließen", key="close_fast", use_container_width=True):
             st.session_state.fast_mode_active = False
             st.rerun()
-    
+
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
     if p_name is None:
         players = VALID_PLAYERS + ["Alle"]
-        
         for row in range(2):
             cols = st.columns(4, gap="large")
             for col_idx in range(4):
@@ -571,7 +578,7 @@ if st.session_state.get("fast_mode_active"):
                             st.session_state.fast_mode_player = p
                             st.rerun()
             if row == 0:
-                st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
     else:
         fast_amounts = [5, 10, 15, 20, 30, 40, 50, 100]
         for row in range(2):
