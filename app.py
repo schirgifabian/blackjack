@@ -518,28 +518,30 @@ if st.session_state.get("fast_mode_active"):
         }
 
         /* Zurück / Close Buttons (außerhalb Grid) */
-        div.stButton > button {
+        div[data-testid="stButton"] button {
             height: 90px !important;
-            font-size: 28px !important;
-            font-weight: 700 !important;
             border-radius: 24px !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+            border: 2px solid #E2E8F0 !important;
+            background: white !important;
+        }
+        div[data-testid="stButton"] button p {
+            font-size: 28px !important;
+            font-weight: 700 !important;
+            color: #0F172A !important;
+            margin: 0 !important;
         }
 
         /* ALLE Buttons in Spalten → quadratisch & riesig (Kassen-Style) */
-        div[data-testid="column"] div.stButton > button {
+        div[data-testid="column"] button {
             aspect-ratio: 1 / 1 !important;
             height: auto !important;
             min-height: 0 !important;
-            font-size: 56px !important; /* Deutlich größer für iPad */
-            font-weight: 800 !important;
-            font-family: 'Inter', sans-serif !important;
             border-radius: 32px !important;
             border: 4px solid #CBD5E1 !important;
             background: white !important;
-            color: #0F172A !important;
             box-shadow: 0 12px 30px rgba(0,0,0,0.08) !important;
-            transition: all 0.1s ease !important;
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
@@ -547,21 +549,36 @@ if st.session_state.get("fast_mode_active"):
             width: 100% !important;
         }
         
+        div[data-testid="column"] button p {
+            font-size: 56px !important; /* Deutlich größer für iPad */
+            font-weight: 800 !important;
+            font-family: 'Inter', sans-serif !important;
+            color: #0F172A !important;
+            margin: 0 !important;
+            line-height: 1.2 !important;
+        }
+        
         @media (max-width: 800px) {
-            div[data-testid="column"] div.stButton > button {
-                font-size: 32px !important; /* Fallback für kleine Screens */
+            div[data-testid="column"] button {
                 border-radius: 20px !important;
                 padding: 12px !important;
             }
+            div[data-testid="column"] button p {
+                font-size: 32px !important; /* Fallback für kleine Screens */
+            }
         }
 
-        div[data-testid="column"] div.stButton > button:hover {
+        div[data-testid="column"] button:hover {
             border-color: #10B981 !important;
             background: #F0FDF4 !important;
-            transform: scale(1.02) !important;
+            transform: translateY(-4px) !important;
             box-shadow: 0 20px 40px rgba(16,185,129,0.2) !important;
         }
-        div[data-testid="column"] div.stButton > button:active {
+        div[data-testid="column"] button:hover p {
+            color: #065F46 !important;
+        }
+
+        div[data-testid="column"] button:active {
             transform: scale(0.95) !important;
             background: #D1FAE5 !important;
             border-color: #059669 !important;
