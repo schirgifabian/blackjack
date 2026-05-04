@@ -490,32 +490,64 @@ with st.sidebar:
 if st.session_state.get("fast_mode_active"):
     st.markdown("""
     <style>
-        div[data-testid="column"] button {
-            height: 120px !important;
-            font-size: 26px !important;
+        /* Vollbild-Modus erzwingen */
+        [data-testid="stSidebar"] { display: none !important; }
+        [data-testid="stHeader"] { display: none !important; }
+        [data-testid="stToolbar"] { display: none !important; }
+        
+        .block-container {
+            padding: 2rem !important;
+            max-width: 100% !important;
+        }
+
+        /* Riesige Grid Buttons (Secondary) */
+        div[data-testid="column"] button[kind="secondary"] {
+            height: 180px !important;
+            font-size: 36px !important;
             font-weight: 800 !important;
-            border-radius: 20px !important;
-            border: 2px solid #E2E8F0 !important;
+            border-radius: 24px !important;
+            border: 3px solid #E2E8F0 !important;
             transition: all 0.2s;
             background-color: white;
             color: #0F172A;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05) !important;
         }
-        div[data-testid="column"] button:hover {
+        div[data-testid="column"] button[kind="secondary"]:hover {
             border-color: #10B981 !important;
             background-color: #F8FAFC !important;
-            transform: scale(1.02);
+            transform: scale(1.03);
+            box-shadow: 0 15px 35px rgba(16, 185, 129, 0.2) !important;
+        }
+
+        /* X Button (Primary) */
+        button[kind="primary"] {
+            background: transparent !important;
+            border: none !important;
+            color: #94A3B8 !important;
+            font-size: 36px !important;
+            box-shadow: none !important;
+            height: auto !important;
+            padding: 0px !important;
+            float: right !important;
+        }
+        button[kind="primary"]:hover {
+            color: #EF4444 !important;
+            background: transparent !important;
+            transform: scale(1.1);
         }
     </style>
     """, unsafe_allow_html=True)
     
-    if st.button("❌ Ansicht verlassen"):
-        st.session_state.fast_mode_active = False
-        st.rerun()
-        
-    st.markdown("<h2 style='text-align: center; margin-bottom: 20px;'>⚡ Fast Booking</h2>", unsafe_allow_html=True)
+    c_title, c_close = st.columns([10, 1])
+    with c_title:
+        st.markdown("<h1 style='margin-bottom: 30px;'>⚡ Kasse (Fast Booking)</h1>", unsafe_allow_html=True)
+    with c_close:
+        if st.button("✖", type="primary", key="close_fast"):
+            st.session_state.fast_mode_active = False
+            st.rerun()
     
     if st.session_state.get("fast_mode_player") is None:
-        st.markdown("<h4 style='text-align: center; color: #64748B; margin-bottom: 20px;'>1. Spieler wählen</h4>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #64748B; margin-bottom: 20px;'>1. Spieler wählen</h3>", unsafe_allow_html=True)
         players = VALID_PLAYERS + ["Sonstiges"]
         
         for row in range(2):
@@ -530,9 +562,9 @@ if st.session_state.get("fast_mode_active"):
                             st.rerun()
     else:
         p_name = st.session_state.fast_mode_player
-        st.markdown(f"<h4 style='text-align: center; color: #10B981; margin-bottom: 20px;'>2. Einzahlung für {p_name}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='color: #10B981; margin-bottom: 20px;'>2. Einzahlung für {p_name}</h3>", unsafe_allow_html=True)
         
-        if st.button("⬅️ Zurück zur Spielerauswahl"):
+        if st.button("⬅️ Zurück zur Spielerauswahl", use_container_width=True):
             st.session_state.fast_mode_player = None
             st.rerun()
             
