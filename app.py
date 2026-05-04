@@ -2,42 +2,59 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import pytz
 import requests
 import urllib.parse
-import time
+import uuid
+import logging
 
 # --- 1. CORE CONFIG ---
 st.set_page_config(page_title="Blackjack Bank", page_icon="♠️", layout="centered")
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+log = logging.getLogger("bjbank")
+
 # Constants
 VALID_PLAYERS = sorted(["Tobi", "Alex", "Dani", "Fabi", "Schirgi", "Lüxn", "Domi"])
 CHIP_VALUES = [5, 10, 20, 50, 100]
+TZ = pytz.timezone('Europe/Berlin')
+
+# Session-Cutoff: Buchungen vor 6 Uhr morgens zählen zum Vortag
+SESSION_HOUR_CUTOFF = 6
+UNDO_WINDOW_SECONDS = 60
 
 # --- SESSION STATE SETUP ---
 if 'trans_amount' not in st.session_state:
     st.session_state.trans_amount = 10.0
-if 'selected_player' not in st.session_state:
-    st.session_state.selected_player = VALID_PLAYERS[0]
+if 'last_booking' not in st.session_state:
+    st.session_state.last_booking = None  # {'id': ..., 'time': datetime, 'summary': str}
+if 'active_session_id' not in st.session_state:
+    st.session_state.active_session_id = None
 
 def set_amount(val):
     st.session_state.trans_amount = float(val)
 
+def get_session_date(dt):
+    """Verschiebt Buchungen vor 6 Uhr morgens auf den Vortag."""
+    if pd.isna(dt) or dt is None:
+        return datetime.now(TZ).date()
+    if hasattr(dt, 'tz_localize') and dt.tzinfo is None:
+        pass  # naive datetime ist ok
+    return dt.date() - timedelta(days=1) if dt.hour < SESSION_HOUR_CUTOFF else dt.date()
+
 # --- 2. LUXURY CSS ENGINE ---
 st.markdown("""
 <style>
-    /* IMPORTS */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
-    /* GLOBAL THEME */
     .stApp {
         background: radial-gradient(circle at top left, #F8FAFC, #E2E8F0);
         font-family: 'Inter', sans-serif;
         color: #0F172A;
     }
 
-    /* GLASS CONTAINER */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(12px);
@@ -48,11 +65,8 @@ st.markdown("""
         padding: 24px !important;
         margin-bottom: 20px;
     }
-    div[data-testid="stVerticalBlockBorderWrapper"] > div {
-        padding: 0 !important;
-    }
+    div[data-testid="stVerticalBlockBorderWrapper"] > div { padding: 0 !important; }
 
-    /* GLASSMORPHISM CARD */
     .glass-card {
         background: rgba(255, 255, 255, 0.7);
         backdrop-filter: blur(12px);
@@ -65,7 +79,6 @@ st.markdown("""
         transition: transform 0.2s;
     }
 
-    /* VAULT DISPLAY */
     .vault-display {
         background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         color: white;
@@ -89,8 +102,13 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: -2px;
     }
+    .vault-meta {
+        font-size: 12px;
+        opacity: 0.5;
+        margin-top: 10px;
+        letter-spacing: 1px;
+    }
 
-    /* METRIC CARDS */
     .metric-value {
         font-family: 'JetBrains Mono', monospace;
         font-size: 24px;
@@ -103,7 +121,6 @@ st.markdown("""
         opacity: 0.7;
     }
 
-    /* CHIP BUTTONS */
     div[data-testid="column"] button {
         border-radius: 16px;
         height: 50px;
@@ -126,7 +143,6 @@ st.markdown("""
         border-color: #0F172A;
     }
 
-    /* ACTION BUTTONS */
     button[kind="primary"] {
         border-radius: 16px;
         height: 60px;
@@ -140,34 +156,29 @@ st.markdown("""
         background: rgba(255,255,255,0.8);
     }
 
-    /* HIDE DECORATIONS */
     #MainMenu, footer {visibility: hidden;}
 
-/* Ensure menu toggle is always visible */
-header button[data-testid="baseButton-header"],
-[data-testid="stSidebarCollapsed"],
-[data-testid="stSidebar"] > div:first-child button {
-    visibility: visible !important;
-    opacity: 1 !important;
-    display: block !important;
-    z-index: 999999 !important;
-}
+    header button[data-testid="baseButton-header"],
+    [data-testid="stSidebarCollapsed"],
+    [data-testid="stSidebar"] > div:first-child button {
+        visibility: visible !important;
+        opacity: 1 !important;
+        display: block !important;
+        z-index: 999999 !important;
+    }
 
-/* Header background same as app background */
-.stApp > header {
-    background: radial-gradient(circle at top left, #F8FAFC, #E2E8F0) !important;
-    background-color: transparent !important;
-}
+    .stApp > header {
+        background: radial-gradient(circle at top left, #F8FAFC, #E2E8F0) !important;
+        background-color: transparent !important;
+    }
 
-/* HIDE top-right icons (GitHub, Share, etc.) but keep menu toggle */
-header .stButton button[title*="GitHub"],
-header .stButton button[title*="Share"],
-header button[kind="header"]:not([data-testid="baseButton-header"]) {
-    display: none !important;
-    visibility: hidden !important;
-}
+    header .stButton button[title*="GitHub"],
+    header .stButton button[title*="Share"],
+    header button[kind="header"]:not([data-testid="baseButton-header"]) {
+        display: none !important;
+        visibility: hidden !important;
+    }
 
-    /* TABS */
     .stTabs [data-baseweb="tab-list"] {
         background: rgba(255,255,255,0.5);
         padding: 5px;
@@ -182,56 +193,29 @@ header button[kind="header"]:not([data-testid="baseButton-header"]) {
         background: white !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     }
-/* iPad WEBAPP NAVIGATION FIX */
-@media (pointer: coarse) {
-    /* Always show hamburger menu on touch devices */
-    div[data-testid="stSidebarCollapsed"] {
-        visibility: visible !important;
-        width: auto !important;
+
+    .badge-pill {
+        display: inline-block;
+        padding: 4px 12px;
+        margin: 2px 4px 2px 0;
+        background: rgba(15, 23, 42, 0.05);
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
     }
 
-    /* Ensure toggle is always accessible */
-    button[kind="header"] {
-        z-index: 999999 !important;
+    @media (pointer: coarse) {
+        div[data-testid="stSidebarCollapsed"] {
+            visibility: visible !important;
+            width: auto !important;
+        }
+        button[kind="header"] { z-index: 999999 !important; }
+        .stApp { padding-top: 60px; }
     }
 
-    /* Add padding-top to prevent content overlap */
-    .stApp {
-        padding-top: 60px;
+    @media (display-mode: standalone) {
+        .stApp { padding-top: 70px !important; }
     }
-}
-
-/* Fix for iOS Safari standalone mode */
-@media display-mode: standalone {
-    .stApp {
-        padding-top: 70px !important;
-    }
-}
-/* iPad WEBAPP NAVIGATION FIX */
-@media (pointer: coarse) {
-    /* Always show hamburger menu on touch devices */
-    div[data-testid="stSidebarCollapsed"] {
-        visibility: visible !important;
-        width: auto !important;
-    }
-
-    /* Ensure toggle is always accessible */
-    button[kind="header"] {
-        z-index: 999999 !important;
-    }
-
-    /* Add padding-top to prevent content overlap */
-    .stApp {
-        padding-top: 60px;
-    }
-}
-
-/* Fix for iOS Safari standalone mode */
-@media display-mode: standalone {
-    .stApp {
-        padding-top: 70px !important;
-    }
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -246,7 +230,7 @@ def calc_netto(row):
     a = str(row["Aktion"]).lower()
     return -b if (("ausgabe" in a or "auszahlung" in a) and b > 0) else b
 
-@st.cache_data(ttl=0)
+@st.cache_data(ttl=30)
 def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
@@ -254,58 +238,278 @@ def load_data():
         rename_map = {"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"}
         df = df.rename(columns=rename_map)
 
-        expected_cols = ["Datum", "Name", "Aktion", "Betrag", "Zeitstempel"]
+        expected_cols = ["Datum", "Name", "Aktion", "Betrag", "Zeitstempel", "Session_ID", "Booking_ID"]
         for col in expected_cols:
-            if col not in df.columns: df[col] = None
+            if col not in df.columns:
+                df[col] = None
 
         if not df.empty:
-            df["Betrag"] = pd.to_numeric(df["Betrag"].astype(str).str.replace(',', '.', regex=False), errors='coerce').fillna(0)
-            df['Full_Date'] = pd.to_datetime(df['Datum'] + ' ' + df['Zeitstempel'].fillna('00:00'), format='%d.%m.%Y %H:%M', errors='coerce')
-            df['Full_Date'] = df['Full_Date'].fillna(pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce'))
+            df["Betrag"] = pd.to_numeric(
+                df["Betrag"].astype(str).str.replace(',', '.', regex=False),
+                errors='coerce'
+            ).fillna(0)
+            df['Full_Date'] = pd.to_datetime(
+                df['Datum'].astype(str) + ' ' + df['Zeitstempel'].fillna('00:00').astype(str),
+                format='%d.%m.%Y %H:%M', errors='coerce'
+            )
+            df['Full_Date'] = df['Full_Date'].fillna(
+                pd.to_datetime(df['Datum'], format='%d.%m.%Y', errors='coerce')
+            )
             df["Netto"] = df.apply(calc_netto, axis=1)
+            df["Session_Date"] = df["Full_Date"].apply(get_session_date)
             return df.sort_values("Full_Date", ascending=False).reset_index(drop=True), conn
-    except Exception:
-        pass
-    return pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto", "Full_Date"]), conn
+    except Exception as e:
+        log.error(f"load_data failed: {e}")
+    return pd.DataFrame(columns=[
+        "Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto",
+        "Full_Date", "Session_Date", "Session_ID", "Booking_ID"
+    ]), conn
 
+
+def write_booking(conn, name, typ, amount, session_id):
+    """Buchung ans Sheet anhängen. Gibt Booking_ID zurück."""
+    now = datetime.now(TZ)
+    booking_id = uuid.uuid4().hex[:12]
+    new_entry = pd.DataFrame([{
+        "Datum": now.strftime("%d.%m.%Y"),
+        "Zeit": now.strftime("%H:%M"),
+        "Spieler": name,
+        "Typ": typ,
+        "Betrag": amount,
+        "Session_ID": session_id or "",
+        "Booking_ID": booking_id,
+    }])
+    raw = conn.read(worksheet="Buchungen", ttl=0)
+    # Sicherstellen, dass die neuen Spalten existieren
+    for col in ["Session_ID", "Booking_ID"]:
+        if col not in raw.columns:
+            raw[col] = ""
+    updated = pd.concat([raw, new_entry], ignore_index=True)
+    conn.update(worksheet="Buchungen", data=updated)
+    return booking_id, now
+
+
+def delete_booking(conn, booking_id):
+    """Letzte Buchung anhand Booking_ID entfernen."""
+    raw = conn.read(worksheet="Buchungen", ttl=0)
+    if "Booking_ID" not in raw.columns or raw.empty:
+        return False
+    before = len(raw)
+    filtered = raw[raw["Booking_ID"].astype(str) != str(booking_id)]
+    if len(filtered) == before:
+        return False
+    conn.update(worksheet="Buchungen", data=filtered)
+    return True
+
+
+def send_ntfy(title, msg, tag="moneybag"):
+    try:
+        requests.post(
+            "https://ntfy.sh/bj-boys-dashboard",
+            data=msg.encode('utf-8'),
+            headers={"Title": title.encode('utf-8'), "Tags": tag},
+            timeout=2
+        )
+    except Exception as e:
+        log.warning(f"ntfy failed: {e}")
+
+
+# --- DEBT NETTING (Splitwise-Style) ---
+def settle_debts(balances: dict):
+    """
+    balances: {name: amount}  positiv = bekommt Geld, negativ = schuldet
+    Returns: list of (debtor, creditor, amount) – minimale Zahlungen
+    """
+    creditors = sorted(
+        [(n, v) for n, v in balances.items() if v > 0.01],
+        key=lambda x: -x[1]
+    )
+    debtors = sorted(
+        [(n, -v) for n, v in balances.items() if v < -0.01],
+        key=lambda x: -x[1]
+    )
+
+    transactions = []
+    i = j = 0
+    while i < len(debtors) and j < len(creditors):
+        d_name, d_amt = debtors[i]
+        c_name, c_amt = creditors[j]
+        pay = min(d_amt, c_amt)
+        transactions.append((d_name, c_name, round(pay, 2)))
+        d_amt -= pay
+        c_amt -= pay
+        if d_amt < 0.01:
+            i += 1
+        else:
+            debtors[i] = (d_name, d_amt)
+        if c_amt < 0.01:
+            j += 1
+        else:
+            creditors[j] = (c_name, c_amt)
+    return transactions
+
+
+# --- ACHIEVEMENTS ---
+def compute_achievements(df_all, player):
+    """Achievements für einen Spieler berechnen."""
+    badges = []
+    df_p = df_all[
+        (df_all["Name"] == player)
+        & (~df_all["Aktion"].astype(str).str.contains("Bank", case=False, na=False))
+    ].copy()
+    if df_p.empty:
+        return badges
+
+    df_p["Profit"] = -df_p["Netto"]
+    lifetime = df_p["Profit"].sum()
+
+    sessions = df_p.groupby("Session_Date")["Profit"].sum().reset_index()
+    n_sessions = len(sessions)
+    wins = (sessions["Profit"] > 0).sum()
+    best = sessions["Profit"].max() if not sessions.empty else 0
+    worst = sessions["Profit"].min() if not sessions.empty else 0
+
+    # Streak: max consecutive winning sessions
+    sessions_sorted = sessions.sort_values("Session_Date")
+    max_streak = cur_streak = 0
+    for p in sessions_sorted["Profit"]:
+        if p > 0:
+            cur_streak += 1
+            max_streak = max(max_streak, cur_streak)
+        else:
+            cur_streak = 0
+
+    # Buy-ins (Anzahl Einzahlungen in einer Session = Re-buys)
+    buyins = df_p[df_p["Aktion"].astype(str).str.contains("Einzahlung", case=False, na=False)]
+    max_buyins_session = buyins.groupby("Session_Date").size().max() if not buyins.empty else 0
+
+    rules = [
+        (lifetime >= 100, "🦈 Hai", "100€+ Lifetime"),
+        (lifetime >= 500, "👑 Legende", "500€+ Lifetime"),
+        (lifetime <= -100, "💸 Sponsor", "Trägt die Runde"),
+        (best >= 100, "🚀 Moonshot", "100€+ in einer Session"),
+        (best >= 250, "💎 Diamant", "250€+ in einer Session"),
+        (worst <= -100, "💀 Tilt", "100€+ verloren"),
+        (max_streak >= 3, f"🔥 Streak x{max_streak}", f"{max_streak} Wins in Folge"),
+        (max_streak >= 5, "⚡ On Fire", "5+ Wins in Folge"),
+        (n_sessions >= 10, "🎲 Stammgast", "10+ Sessions"),
+        (n_sessions >= 25, "🏛️ Veteran", "25+ Sessions"),
+        (wins >= 10, "🏆 Winner", "10+ gewonnene Sessions"),
+        (max_buyins_session >= 4, "🩸 Bluter", "4+ Re-buys in einer Session"),
+        (max_buyins_session >= 7, "🌋 All-In", "7+ Re-buys in einer Session"),
+    ]
+    for cond, label, desc in rules:
+        if cond:
+            badges.append((label, desc))
+    return badges
+
+
+def player_streak(df_all, player):
+    """Aktueller Win/Loss-Streak."""
+    df_p = df_all[
+        (df_all["Name"] == player)
+        & (~df_all["Aktion"].astype(str).str.contains("Bank", case=False, na=False))
+    ].copy()
+    if df_p.empty:
+        return 0, "neutral"
+    df_p["Profit"] = -df_p["Netto"]
+    sessions = df_p.groupby("Session_Date")["Profit"].sum().sort_index(ascending=False)
+    if sessions.empty:
+        return 0, "neutral"
+    streak = 0
+    direction = "win" if sessions.iloc[0] > 0 else ("loss" if sessions.iloc[0] < 0 else "neutral")
+    for p in sessions:
+        if direction == "win" and p > 0:
+            streak += 1
+        elif direction == "loss" and p < 0:
+            streak += 1
+        else:
+            break
+    return streak, direction
+
+
+# --- LOAD ---
 df, conn = load_data()
 balance = df["Netto"].sum() if not df.empty else 0.0
 
-# --- 4. NAVIGATION ---
-# iPad Webapp Fix: Always visible menu toggle
-if st.session_state.get('_sidebar_collapsed', False):
-    if st.button("☰ Menü", key="ipad_nav_toggle"):
-        st.session_state._sidebar_collapsed = False
-        st.rerun()
 
+# --- 4. NAVIGATION ---
 with st.sidebar:
     st.markdown("### ♠️ Navigation")
-    page = st.radio("Go to", ["Übersicht", "Transaktion", "Statistik", "Kassensturz"], label_visibility="collapsed")
+    page = st.radio(
+        "Go to",
+        ["Übersicht", "Transaktion", "Statistik", "Achievements", "Kassensturz"],
+        label_visibility="collapsed"
+    )
+    st.markdown("---")
+
+    # Session-Steuerung
+    st.markdown("#### 🎰 Session")
+    if st.session_state.active_session_id:
+        st.success(f"Aktiv: `{st.session_state.active_session_id[:8]}`")
+        if st.button("⏹️ Session beenden", use_container_width=True):
+            st.session_state.active_session_id = None
+            st.toast("Session beendet")
+            st.rerun()
+    else:
+        if st.button("▶️ Session starten", use_container_width=True, type="primary"):
+            st.session_state.active_session_id = uuid.uuid4().hex[:12]
+            st.toast(f"Session gestartet: {st.session_state.active_session_id[:8]}")
+            st.rerun()
+
     st.markdown("---")
     if st.button("🔄 Sync", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
-# --- HEADER (visible on Overview) ---
+
+# --- HEADER ---
 if page == "Übersicht":
+    # Session-Info
+    today_session = get_session_date(datetime.now(TZ))
+    df_today = df[df["Session_Date"] == today_session] if not df.empty else df
+    n_today = len(df_today)
+    vol_today = df_today["Betrag"].sum() if not df_today.empty else 0
+
     st.markdown(f"""
     <div class="vault-display">
         <div class="vault-label">BANK HOLDINGS</div>
         <div class="vault-amount">{balance:,.2f} €</div>
+        <div class="vault-meta">{n_today} Buchungen heute · {vol_today:,.0f}€ Volumen</div>
     </div>
     """, unsafe_allow_html=True)
+
 
 # --- PAGE 1: DASHBOARD ---
 if page == "Übersicht":
     if df.empty:
         st.info("Das Casino ist eröffnet. Bitte erste Buchung tätigen.")
     else:
+        # UNDO-Banner falls letzte Buchung im Fenster
+        if st.session_state.last_booking:
+            elapsed = (datetime.now(TZ) - st.session_state.last_booking['time']).total_seconds()
+            if elapsed < UNDO_WINDOW_SECONDS:
+                remaining = int(UNDO_WINDOW_SECONDS - elapsed)
+                c_undo1, c_undo2 = st.columns([3, 1])
+                with c_undo1:
+                    st.warning(f"⏪ {st.session_state.last_booking['summary']} · {remaining}s zum Rückgängigmachen")
+                with c_undo2:
+                    if st.button("Undo", type="primary", use_container_width=True):
+                        if delete_booking(conn, st.session_state.last_booking['id']):
+                            st.toast("✅ Buchung rückgängig gemacht")
+                            st.session_state.last_booking = None
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error("Konnte Buchung nicht finden")
+            else:
+                st.session_state.last_booking = None
+
         st.markdown("##### 📡 Live Feed")
-        for i, row in df.head(5).iterrows():
+        for _, row in df.head(5).iterrows():
             icon = "📥" if "Einzahlung" in str(row["Aktion"]) else "📤" if "Auszahlung" in str(row["Aktion"]) else "🏦"
             color = "#10B981" if row["Netto"] > 0 else "#EF4444"
             sign = "+" if row["Netto"] > 0 else ""
-
             st.markdown(f"""
             <div class="glass-card" style="padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display:flex; align-items:center; gap:15px;">
@@ -322,80 +526,77 @@ if page == "Übersicht":
             """, unsafe_allow_html=True)
 
         st.markdown("##### 👑 Leaderboard")
-        df_p = df[~df["Aktion"].str.contains("Bank", case=False, na=False)]
+        df_p = df[~df["Aktion"].astype(str).str.contains("Bank", case=False, na=False)]
         if not df_p.empty:
             lb = df_p.groupby("Name")["Netto"].sum().mul(-1).sort_values(ascending=False).head(3)
             cols = st.columns(3)
             for idx, (name, val) in enumerate(lb.items()):
                 badges = ["🥇", "🥈", "🥉"]
-                color = "green" if val >= 0 else "red"
+                color = "#10B981" if val >= 0 else "#EF4444"
+                streak, direction = player_streak(df, name)
+                streak_emoji = "🔥" if direction == "win" and streak >= 2 else ("❄️" if direction == "loss" and streak >= 2 else "")
+                streak_label = f"{streak_emoji} {streak}" if streak_emoji else ""
                 with cols[idx]:
                     st.markdown(f"""
                     <div class="glass-card" style="text-align:center; padding:15px;">
                         <div style="font-size:24px; margin-bottom:5px;">{badges[idx]}</div>
                         <div style="font-weight:bold; font-size:14px; margin-bottom:5px;">{name}</div>
-                        <div style="font-family:'JetBrains Mono'; color:{color}; font-weight:bold;">{val:+.0f}</div>
+                        <div style="font-family:'JetBrains Mono'; color:{color}; font-weight:bold;">{val:+.0f}€</div>
+                        <div style="font-size:11px; opacity:0.7; margin-top:4px;">{streak_label}</div>
                     </div>
                     """, unsafe_allow_html=True)
 
-# --- PAGE 2: QUICK TRANSACTION ---
+
+# --- PAGE 2: TRANSAKTION ---
 elif page == "Transaktion":
     st.markdown("### 🎲 Quick Action")
 
-    # 1. PLAYER SECTION
+    if not st.session_state.active_session_id:
+        st.info("💡 Tipp: Starte links eine Session, damit Buchungen sauber zugeordnet werden.")
+
+    # 1. PLAYER
     with st.container(border=True):
         st.caption("👤 SPIELER WÄHLEN")
-        p_sel = st.pills("Name", VALID_PLAYERS + ["Sonstiges"], selection_mode="single", default=VALID_PLAYERS[0], key="player_select", label_visibility="collapsed")
-
+        p_sel = st.pills(
+            "Name",
+            VALID_PLAYERS + ["Sonstiges"],
+            selection_mode="single",
+            default=VALID_PLAYERS[0],
+            key="player_select",
+            label_visibility="collapsed"
+        )
         final_name = p_sel
         if p_sel == "Sonstiges":
             final_name = st.text_input("Name/Zweck", placeholder="Name oder Zweck eingeben", key="custom_name_input")
 
-    # 2. AMOUNT SECTION
+    # 2. BETRAG
     with st.container(border=True):
         st.caption("💰 BETRAG")
-
-        # Chips als Quick-Select
         cols = st.columns(len(CHIP_VALUES))
         for i, val in enumerate(CHIP_VALUES):
             cols[i].button(f"{val}", key=f"btn_{val}", on_click=set_amount, args=(val,), use_container_width=True)
-
         st.write("")
-        # Input Field (Number)
         amount = st.number_input("Betrag (€)", key="trans_amount", step=5.0, format="%.2f", label_visibility="collapsed")
 
-    # 3. ACTION SECTION
+    # 3. AKTION
     with st.container(border=True):
         st.caption("⚡ AKTION")
-
         c1, c2 = st.columns(2)
-
         action_triggered = False
         typ = None
-        sign = 0
         ntfy_tag = "moneybag"
 
         with c1:
             if st.button("📥 Einzahlen (Kaufen)", type="primary", use_container_width=True):
-                typ, sign = "Einzahlung", 1
-                ntfy_tag = "moneybag"
-                action_triggered = True
+                typ, ntfy_tag, action_triggered = "Einzahlung", "moneybag", True
             if st.button("📈 Bank Gewinn", type="secondary", use_container_width=True):
-                typ, sign = "Bank Einnahme", 1
-                ntfy_tag = "moneybag"
-                action_triggered = True
-
+                typ, ntfy_tag, action_triggered = "Bank Einnahme", "moneybag", True
         with c2:
             if st.button("📤 Auszahlen (Tauschen)", type="primary", use_container_width=True):
-                typ, sign = "Auszahlung", -1
-                ntfy_tag = "chart_with_downwards_trend"
-                action_triggered = True
+                typ, ntfy_tag, action_triggered = "Auszahlung", "chart_with_downwards_trend", True
             if st.button("💸 Bank Verlust", type="secondary", use_container_width=True):
-                typ, sign = "Bank Ausgabe", -1
-                ntfy_tag = "chart_with_downwards_trend"
-                action_triggered = True
+                typ, ntfy_tag, action_triggered = "Bank Ausgabe", "chart_with_downwards_trend", True
 
-        # PROCESSING LOGIC
         if action_triggered:
             if not final_name:
                 st.error("⚠️ Bitte Name wählen!")
@@ -403,218 +604,384 @@ elif page == "Transaktion":
                 st.error("⚠️ Betrag > 0 erforderlich!")
             else:
                 with st.spinner(f"Buche {typ}..."):
-                    tz = pytz.timezone('Europe/Berlin')
-                    now = datetime.now(tz)
-
-                    new_entry = pd.DataFrame([{
-                        "Datum": now.strftime("%d.%m.%Y"),
-                        "Zeit": now.strftime("%H:%M"),
-                        "Spieler": final_name,
-                        "Typ": typ,
-                        "Betrag": amount
-                    }])
-
                     try:
-                        raw = conn.read(worksheet="Buchungen", ttl=0)
-                        if not raw.empty:
-                            raw = raw.rename(columns={"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"})
+                        booking_id, now = write_booking(
+                            conn, final_name, typ, amount, st.session_state.active_session_id
+                        )
+                        st.session_state.last_booking = {
+                            'id': booking_id,
+                            'time': now,
+                            'summary': f"{typ} · {final_name} · {amount:.2f}€"
+                        }
 
-                        # Speichern
-                        raw_save = conn.read(worksheet="Buchungen", ttl=0)
-                        updated_save = pd.concat([raw_save, new_entry], ignore_index=True)
-                        conn.update(worksheet="Buchungen", data=updated_save)
-
-                        # Notify
-                        if "Bank" in typ:
-                            try:
-                                msg = f"{final_name}: {amount}€"
-                                requests.post("https://ntfy.sh/bj-boys-dashboard",
-                                    data=msg.encode('utf-8'),
-                                    headers={"Title": f"{typ}".encode('utf-8'), "Tags": ntfy_tag}, timeout=2)
-                            except: pass
+                        # Push bei Bank-Buchungen oder großen Beträgen (>100)
+                        if "Bank" in typ or amount >= 100:
+                            send_ntfy(typ, f"{final_name}: {amount:.2f}€", ntfy_tag)
 
                         st.toast(f"✅ {typ}: {amount:.2f}€", icon="♠️")
-                        if "Einnahme" in typ or "Gewinn" in typ: st.balloons()
+                        if "Einnahme" in typ:
+                            st.balloons()
 
-                        time.sleep(1)
+                        # Reset Betrag auf Default
+                        st.session_state.trans_amount = 10.0
                         st.cache_data.clear()
                         st.rerun()
-
                     except Exception as e:
+                        log.error(f"booking failed: {e}")
                         st.error(f"Fehler: {e}")
 
+
+# --- PAGE 3: STATISTIK ---
 elif page == "Statistik":
     st.markdown("### 📊 Deep Analytics")
 
-    # 1. Globale Balance-Historie berechnen (BEVOR gefiltert wird)
-    df_calc = df.sort_values("Full_Date").copy()
-    df_calc["Balance"] = df_calc["Netto"].cumsum()
+    df_calc = df.sort_values("Full_Date").copy() if not df.empty else df.copy()
+    if not df_calc.empty:
+        df_calc["Balance"] = df_calc["Netto"].cumsum()
+    else:
+        df_calc = pd.DataFrame(columns=[
+            "Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto",
+            "Full_Date", "Session_Date", "Balance"
+        ])
 
-    # 2. Session-Logik korrigieren (Mitternachts-Bug Fix)
-    def get_session_date(dt):
-        if pd.isna(dt): return datetime.now().date()
-        # Verschiebe alles vor 6 Uhr morgens auf den Vortag
-        return dt.date() - timedelta(days=1) if dt.hour < 6 else dt.date()
-
-    df_calc["Session_Date"] = df_calc["Full_Date"].apply(get_session_date)
-
-    # FILTER FIX: Leere Daten abfangen
-    if df_calc.empty:
-        df_calc = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto", "Full_Date", "Session_Date", "Balance"])
-
-    # FILTER FIX: Leere Daten abfangen
-    if df_calc.empty:
-        df_calc = pd.DataFrame(columns=["Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto", "Full_Date", "Session_Date", "Balance"])
-
-    # 3. Filter anwenden
     filter_options = ["Aktuelle Session", "Gesamt", "Dieser Monat", "Benutzerdefiniert"]
     scope = st.pills("Zeitraum", filter_options, default="Aktuelle Session")
-
-    today = datetime.now().date()
+    today = datetime.now(TZ).date()
 
     if scope == "Aktuelle Session":
-        # Zeige Daten der letzten berechneten Session (Heute oder Gestern)
-        current_session_date = get_session_date(datetime.now())
-        df_s = df_calc[df_calc["Session_Date"] == current_session_date]
+        current_session_date = get_session_date(datetime.now(TZ))
+        df_s = df_calc[df_calc["Session_Date"] == current_session_date] if not df_calc.empty else df_calc
     elif scope == "Gesamt":
         df_s = df_calc
     elif scope == "Dieser Monat":
-        df_s = df_calc[(df_calc["Full_Date"].dt.month == today.month) & (df_calc["Full_Date"].dt.year == today.year)]
-    elif scope == "Benutzerdefiniert":
-        c_date = st.container()
-        d_range = c_date.date_input("Wähle Zeitraum:", value=(today - timedelta(days=7), today), format="DD.MM.YYYY")
+        df_s = df_calc[
+            (df_calc["Full_Date"].dt.month == today.month) & (df_calc["Full_Date"].dt.year == today.year)
+        ] if not df_calc.empty else df_calc
+    else:  # Benutzerdefiniert
+        d_range = st.date_input(
+            "Wähle Zeitraum:",
+            value=(today - timedelta(days=7), today),
+            format="DD.MM.YYYY"
+        )
         if isinstance(d_range, tuple) and len(d_range) == 2:
-            df_s = df_calc[(df_calc["Full_Date"].dt.date >= d_range[0]) & (df_calc["Full_Date"].dt.date <= d_range[1])]
+            df_s = df_calc[
+                (df_calc["Full_Date"].dt.date >= d_range[0]) & (df_calc["Full_Date"].dt.date <= d_range[1])
+            ]
         elif isinstance(d_range, tuple) and len(d_range) == 1:
             df_s = df_calc[df_calc["Full_Date"].dt.date == d_range[0]]
-    else:
-        df_s = df_calc
+        else:
+            df_s = df_calc
 
-    t1, t2, t3 = st.tabs(["Performance", "Timeline", "Hall of Fame"])
+    t1, t2, t3, t4, t5 = st.tabs(["Performance", "Timeline", "Kalender", "Vergleich", "Profil"])
 
+    # --- TAB 1: Performance ---
     with t1:
-        # Profit pro Spieler
-        df_p = df_s[~df_s["Aktion"].str.contains("Bank", case=False, na=False)]
+        df_p = df_s[~df_s["Aktion"].astype(str).str.contains("Bank", case=False, na=False)] if not df_s.empty else df_s
         if not df_p.empty:
             agg = df_p.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
             agg["Color"] = agg["Profit"].apply(lambda x: '#10B981' if x >= 0 else '#EF4444')
-
             fig = px.bar(agg, x="Profit", y="Name", orientation='h', text="Profit")
-            fig.update_traces(marker_color=agg["Color"], texttemplate='%{text:+.2f} €', textposition='outside', textfont_family="JetBrains Mono")
-            fig.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=400, yaxis_title=None, xaxis_title=None)
+            fig.update_traces(
+                marker_color=agg["Color"],
+                texttemplate='%{text:+.2f} €',
+                textposition='outside',
+                textfont_family="JetBrains Mono"
+            )
+            fig.update_layout(
+                template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=400, yaxis_title=None, xaxis_title=None
+            )
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Keine Daten im gewählten Zeitraum.")
 
+    # --- TAB 2: Timeline ---
     with t2:
-        # Timeline (zeigt nun korrekte absolute Balance)
         if not df_s.empty:
             df_h = df_s.sort_values("Full_Date")
             fig_l = px.area(df_h, x="Full_Date", y="Balance")
-
-            # Y-Achse skalieren für bessere Sichtbarkeit
-            min_y = df_h["Balance"].min()
-            max_y = df_h["Balance"].max()
+            min_y, max_y = df_h["Balance"].min(), df_h["Balance"].max()
             padding = (max_y - min_y) * 0.1 if max_y != min_y else 10
-
             fig_l.update_yaxes(range=[min_y - padding, max_y + padding])
             fig_l.update_traces(line_color='#0F172A', fill='tozeroy', fillcolor='rgba(15, 23, 42, 0.1)')
-            fig_l.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=350, yaxis_title=None, xaxis_title=None)
+            fig_l.update_layout(
+                template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=350, yaxis_title=None, xaxis_title=None
+            )
             st.plotly_chart(fig_l, use_container_width=True)
         else:
             st.info("Keine Transaktionen in diesem Zeitraum.")
 
+    # --- TAB 3: Kalender-Heatmap ---
     with t3:
+        if not df.empty:
+            year_options = sorted(df["Full_Date"].dt.year.dropna().unique().astype(int).tolist(), reverse=True)
+            if year_options:
+                sel_year = st.selectbox("Jahr", year_options, key="cal_year")
+                df_y = df[df["Full_Date"].dt.year == sel_year].copy()
+
+                # Aktivität pro Tag (Anzahl Buchungen)
+                daily = df_y.groupby(df_y["Session_Date"]).size().reset_index(name="Count")
+                daily["Session_Date"] = pd.to_datetime(daily["Session_Date"])
+
+                # Volle Jahresgrid bauen
+                start = pd.Timestamp(sel_year, 1, 1)
+                end = pd.Timestamp(sel_year, 12, 31)
+                all_days = pd.DataFrame({"Date": pd.date_range(start, end)})
+                merged = all_days.merge(daily, left_on="Date", right_on="Session_Date", how="left")
+                merged["Count"] = merged["Count"].fillna(0)
+                merged["Week"] = merged["Date"].dt.isocalendar().week
+                merged["DayOfWeek"] = merged["Date"].dt.dayofweek
+                merged["Month"] = merged["Date"].dt.month
+
+                # Plotly Heatmap
+                pivot = merged.pivot_table(index="DayOfWeek", columns="Week", values="Count", aggfunc="sum").fillna(0)
+                fig_cal = go.Figure(data=go.Heatmap(
+                    z=pivot.values,
+                    x=[f"W{w}" for w in pivot.columns],
+                    y=["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
+                    colorscale=[[0, "#F1F5F9"], [0.3, "#94A3B8"], [1, "#0F172A"]],
+                    showscale=True,
+                    hoverongaps=False,
+                    colorbar=dict(title="Buchungen", thickness=10),
+                ))
+                fig_cal.update_layout(
+                    template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    height=250, margin=dict(l=20, r=20, t=20, b=20),
+                )
+                st.plotly_chart(fig_cal, use_container_width=True)
+
+                # Stats
+                play_days = (merged["Count"] > 0).sum()
+                total_book = int(merged["Count"].sum())
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Spieltage", play_days)
+                c2.metric("Buchungen gesamt", total_book)
+                c3.metric("Ø pro Spieltag", f"{(total_book / play_days):.1f}" if play_days else "0")
+            else:
+                st.info("Keine Daten verfügbar.")
+        else:
+            st.info("Keine Daten verfügbar.")
+
+    # --- TAB 4: Year-over-Year Vergleich ---
+    with t4:
+        if not df.empty:
+            df_yoy = df[~df["Aktion"].astype(str).str.contains("Bank", case=False, na=False)].copy()
+            df_yoy["Year"] = df_yoy["Full_Date"].dt.year
+            df_yoy["Profit"] = -df_yoy["Netto"]
+
+            years = sorted(df_yoy["Year"].dropna().unique().astype(int).tolist(), reverse=True)
+            if len(years) >= 1:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    y1 = st.selectbox("Jahr A", years, index=0, key="yoy_a")
+                with col_b:
+                    y2 = st.selectbox(
+                        "Jahr B",
+                        years,
+                        index=1 if len(years) > 1 else 0,
+                        key="yoy_b"
+                    )
+
+                def year_summary(year):
+                    sub = df_yoy[df_yoy["Year"] == year]
+                    return {
+                        "Buchungen": len(sub),
+                        "Sessions": sub["Session_Date"].nunique(),
+                        "Volumen": sub["Betrag"].sum(),
+                        "Top Verlierer": (sub.groupby("Name")["Profit"].sum().idxmin()
+                                          if not sub.empty else "—"),
+                        "Top Gewinner": (sub.groupby("Name")["Profit"].sum().idxmax()
+                                          if not sub.empty else "—"),
+                    }
+
+                s1, s2 = year_summary(y1), year_summary(y2)
+
+                cmp_df = pd.DataFrame({
+                    "Metrik": list(s1.keys()),
+                    f"{y1}": list(s1.values()),
+                    f"{y2}": list(s2.values()),
+                })
+                st.dataframe(cmp_df, use_container_width=True, hide_index=True)
+
+                # Profit pro Spieler im Vergleich
+                pivot = df_yoy[df_yoy["Year"].isin([y1, y2])].groupby(["Name", "Year"])["Profit"].sum().unstack(fill_value=0)
+                if not pivot.empty:
+                    fig_yoy = go.Figure()
+                    for yr in pivot.columns:
+                        fig_yoy.add_trace(go.Bar(name=str(yr), x=pivot.index, y=pivot[yr]))
+                    fig_yoy.update_layout(
+                        barmode='group', template="plotly_white",
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                        height=350, yaxis_title="Profit (€)", xaxis_title=None,
+                    )
+                    st.plotly_chart(fig_yoy, use_container_width=True)
+            else:
+                st.info("Mindestens ein Jahr nötig.")
+        else:
+            st.info("Keine Daten verfügbar.")
+
+    # --- TAB 5: Profil ---
+    with t5:
         st.markdown("##### 👤 Spieler-Profil")
         sel_player = st.selectbox("Spieler wählen", VALID_PLAYERS)
 
-        # Berechnung auf ALLES anwenden, nicht nur gefilterte Ansicht
-        if sel_player and not df_calc.empty:
-            df_play = df_calc[df_calc["Name"] == sel_player].copy()
+        if sel_player and not df.empty:
+            df_play = df[df["Name"] == sel_player].copy()
             if not df_play.empty:
                 df_play["Player_Profit"] = -df_play["Netto"]
-
                 lifetime = df_play["Player_Profit"].sum()
-
-                # Session-basierte Berechnung (mit Fix für 3 Uhr nachts)
                 df_sess = df_play.groupby("Session_Date")["Player_Profit"].sum().reset_index()
-
                 best_s = df_sess["Player_Profit"].max() if not df_sess.empty else 0
                 worst_s = df_sess["Player_Profit"].min() if not df_sess.empty else 0
+                n_sess = len(df_sess)
+                wins = (df_sess["Player_Profit"] > 0).sum()
+                wr = (wins / n_sess * 100) if n_sess else 0
 
-                badges = ""
-                if lifetime > 50: badges += "🦈 Hai "
-                if lifetime < -50: badges += "💸 Sponsor "
-                if best_s > 100: badges += "🚀 Moon "
-                if worst_s < -100: badges += "💀 Tilt "
+                streak, direction = player_streak(df, sel_player)
+                streak_label = ""
+                if streak >= 2:
+                    streak_label = f"🔥 {streak} Wins" if direction == "win" else f"❄️ {streak} Losses"
 
-                st.caption(f"Status: {badges}")
+                if streak_label:
+                    st.caption(f"Aktueller Streak: {streak_label}")
 
-                c1, c2, c3 = st.columns(3)
-                col_data = [(c1, "Lifetime", lifetime), (c2, "Best Session", best_s), (c3, "Worst Session", worst_s)]
-                for col, label, val in col_data:
-                    c_color = "#10B981" if val >= 0 else "#EF4444"
+                c1, c2, c3, c4 = st.columns(4)
+                col_data = [
+                    (c1, "Lifetime", f"{lifetime:+.2f} €"),
+                    (c2, "Best Session", f"{best_s:+.2f} €"),
+                    (c3, "Worst Session", f"{worst_s:+.2f} €"),
+                    (c4, "Win Rate", f"{wr:.0f}%"),
+                ]
+                for col, label, val_str in col_data:
+                    color_val = lifetime if label == "Lifetime" else (best_s if "Best" in label else (worst_s if "Worst" in label else 0))
+                    c_color = "#10B981" if color_val >= 0 else "#EF4444"
+                    if label == "Win Rate":
+                        c_color = "#0F172A"
                     with col:
                         st.markdown(f"""
                         <div class="glass-card" style="padding:15px; text-align:center;">
                             <div class="metric-label">{label}</div>
-                            <div class="metric-value" style="color:{c_color}">{val:+.2f} €</div>
+                            <div class="metric-value" style="color:{c_color}">{val_str}</div>
                         </div>
                         """, unsafe_allow_html=True)
             else:
                 st.info("Keine Daten für diesen Spieler.")
 
-# --- PAGE 4: SETTLEMENT (CRASH FIX) ---
+
+# --- PAGE 4: ACHIEVEMENTS ---
+elif page == "Achievements":
+    st.markdown("### 🏆 Hall of Fame")
+
+    if df.empty:
+        st.info("Noch keine Daten – sammelt erst ein paar Sessions.")
+    else:
+        for player in VALID_PLAYERS:
+            badges = compute_achievements(df, player)
+            streak, direction = player_streak(df, player)
+            streak_pill = ""
+            if streak >= 2:
+                emoji = "🔥" if direction == "win" else "❄️"
+                streak_pill = f'<span class="badge-pill">{emoji} Streak x{streak}</span>'
+
+            badge_html = "".join([
+                f'<span class="badge-pill" title="{desc}">{label}</span>'
+                for label, desc in badges
+            ])
+            if not badge_html and not streak_pill:
+                badge_html = '<span style="opacity:0.4; font-size:13px;">Noch keine Badges</span>'
+
+            st.markdown(f"""
+            <div class="glass-card" style="padding:18px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-weight:700; font-size:17px;">{player}</div>
+                    <div style="font-size:12px; opacity:0.6;">{len(badges)} Badge{"s" if len(badges)!=1 else ""}</div>
+                </div>
+                <div>{streak_pill}{badge_html}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# --- PAGE 5: KASSENSTURZ ---
 elif page == "Kassensturz":
     st.markdown("### 🏁 Abrechnung")
 
     secrets_iban = st.secrets.get("bank", {}).get("iban", "")
     secrets_owner = st.secrets.get("bank", {}).get("owner", "Bank")
-
     if not secrets_iban:
         secrets_iban = st.text_input("IBAN eingeben:", placeholder="DE...")
         secrets_owner = st.text_input("Empfänger:", value="Casino Bank")
 
-    # Sicherstellen, dass wir gültige Datumsangaben haben
-    df["Full_Date"] = pd.to_datetime(df["Full_Date"], errors='coerce')
+    mode = st.radio(
+        "Abrechnungs-Modus",
+        ["An die Bank zahlen", "Untereinander netten (Splitwise)"],
+        horizontal=True
+    )
 
-    today = datetime.now().date()
-
-    # Filter: NotNa prüft, ob das Datum gültig ist, bevor .dt aufgerufen wird
-    mask_date = (df["Full_Date"].notna()) & (df["Full_Date"].dt.date.isin([today, today - timedelta(days=1)]))
-    mask_name = df["Name"].isin(VALID_PLAYERS)
-
-    df_sess = df[mask_date & mask_name].copy()
+    today = datetime.now(TZ).date()
+    if not df.empty:
+        df["Full_Date"] = pd.to_datetime(df["Full_Date"], errors='coerce')
+        mask_date = (df["Full_Date"].notna()) & (df["Session_Date"].isin([today, today - timedelta(days=1)]))
+        mask_name = df["Name"].isin(VALID_PLAYERS)
+        df_sess = df[mask_date & mask_name].copy()
+    else:
+        df_sess = df
 
     if df_sess.empty:
         st.info("Keine offenen Sessions für Heute oder Gestern.")
     else:
-        bilanz = df_sess.groupby("Name")["Netto"].sum().mul(-1)
-        debtors = bilanz[bilanz < -0.01]
+        # Bilanz: positiv = Spieler hat gewonnen (bekommt Geld), negativ = Spieler schuldet
+        bilanz = df_sess.groupby("Name")["Netto"].sum().mul(-1).to_dict()
 
-        if debtors.empty:
-            st.balloons()
-            st.success("Niemand hat Schulden! 🎉")
-        else:
-            st.markdown(f"**Empfänger:** {secrets_owner}<br><span style='font-family:monospace'>{secrets_iban}</span>", unsafe_allow_html=True)
-            st.markdown("---")
-
-            for name, amount in debtors.items():
-                abs_amount = abs(amount)
-                qr = get_qr(secrets_owner, secrets_iban, abs_amount, f"BJ {name}")
-
-                st.markdown(f"""
-                <div class="glass-card" style="padding: 0px; overflow: hidden; margin-bottom: 10px;">
-                    <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.5);">
-                        <span style="font-weight:bold; font-size:18px;">🔴 {name}</span>
-                        <span style="float:right; font-family:'JetBrains Mono'; font-weight:bold;">{abs_amount:.2f} €</span>
+        if mode == "An die Bank zahlen":
+            debtors = {n: v for n, v in bilanz.items() if v < -0.01}
+            if not debtors:
+                st.balloons()
+                st.success("Niemand hat Schulden! 🎉")
+            else:
+                if secrets_iban:
+                    st.markdown(
+                        f"**Empfänger:** {secrets_owner}<br>"
+                        f"<span style='font-family:monospace'>{secrets_iban}</span>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown("---")
+                for name, amount in sorted(debtors.items(), key=lambda x: x[1]):
+                    abs_amount = abs(amount)
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding: 0px; overflow: hidden; margin-bottom: 10px;">
+                        <div style="background: rgba(239, 68, 68, 0.1); padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.5);">
+                            <span style="font-weight:bold; font-size:18px;">🔴 {name}</span>
+                            <span style="float:right; font-family:'JetBrains Mono'; font-weight:bold;">{abs_amount:.2f} €</span>
+                        </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                with st.expander(f"📱 QR Code für {name} anzeigen"):
-                    c1, c2 = st.columns([1, 2])
-                    with c1:
-                        st.image(qr, width=200)
-                    with c2:
-                        st.info("Scanne diesen Code mit deiner Banking App.")
+                    """, unsafe_allow_html=True)
+                    if secrets_iban:
+                        with st.expander(f"📱 QR Code für {name} anzeigen"):
+                            qr = get_qr(secrets_owner, secrets_iban, abs_amount, f"BJ {name}")
+                            c1, c2 = st.columns([1, 2])
+                            with c1:
+                                st.image(qr, width=200)
+                            with c2:
+                                st.info("Scanne diesen Code mit deiner Banking App.")
+        else:
+            # Splitwise-Modus
+            st.caption("Minimale Anzahl Zahlungen zwischen den Spielern – ohne Bank-Umweg.")
+            transactions = settle_debts(bilanz)
+            if not transactions:
+                st.balloons()
+                st.success("Alles ausgeglichen! 🎉")
+            else:
+                st.markdown(f"**{len(transactions)} Zahlung(en) lösen alles auf:**")
+                st.markdown("---")
+                for debtor, creditor, amt in transactions:
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding: 14px 18px; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span style="font-weight:700; color:#EF4444;">{debtor}</span>
+                            <span style="opacity:0.5;">→</span>
+                            <span style="font-weight:700; color:#10B981;">{creditor}</span>
+                        </div>
+                        <div style="font-family:'JetBrains Mono'; font-weight:700; font-size:16px;">{amt:.2f} €</div>
+                    </div>
+                    """, unsafe_allow_html=True)
