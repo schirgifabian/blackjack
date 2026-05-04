@@ -504,28 +504,28 @@ if st.session_state.get("fast_mode_active"):
             max-width: 100% !important;
         }
 
-        /* Riesige Grid Buttons (Secondary) */
-        div[data-testid="column"] button[kind="secondary"] {
-            height: 40vh !important;
+        /* Riesige Grid Buttons (Reihen 2 und 3) */
+        div[data-testid="stHorizontalBlock"]:nth-of-type(n+2) button {
+            height: 38vh !important;
             font-size: 56px !important;
             font-weight: 800 !important;
             border-radius: 32px !important;
             border: 4px solid #E2E8F0 !important;
             transition: all 0.2s;
-            background-color: white;
-            color: #0F172A;
+            background-color: white !important;
+            color: #0F172A !important;
             box-shadow: 0 15px 35px rgba(0,0,0,0.08) !important;
             margin: 0 !important;
         }
-        div[data-testid="column"] button[kind="secondary"]:hover {
+        div[data-testid="stHorizontalBlock"]:nth-of-type(n+2) button:hover {
             border-color: #10B981 !important;
             background-color: #F8FAFC !important;
             transform: scale(1.02);
             box-shadow: 0 20px 45px rgba(16, 185, 129, 0.25) !important;
         }
 
-        /* X Button & Zurück Button (Primary) */
-        button[kind="primary"] {
+        /* X Button & Zurück Button (Header Reihe 1) */
+        div[data-testid="stHorizontalBlock"]:nth-of-type(1) button {
             background: transparent !important;
             border: none !important;
             color: #94A3B8 !important;
@@ -534,7 +534,7 @@ if st.session_state.get("fast_mode_active"):
             height: auto !important;
             padding: 0px !important;
         }
-        button[kind="primary"]:hover {
+        div[data-testid="stHorizontalBlock"]:nth-of-type(1) button:hover {
             color: #EF4444 !important;
             background: transparent !important;
             transform: scale(1.1);
@@ -547,13 +547,13 @@ if st.session_state.get("fast_mode_active"):
     c_back, c_title, c_close = st.columns([2, 8, 1])
     with c_back:
         if p_name is not None:
-            if st.button("⬅️ Zurück", type="primary", key="back_fast"):
+            if st.button("⬅️ Zurück", key="back_fast"):
                 st.session_state.fast_mode_player = None
                 st.rerun()
     with c_title:
         st.markdown("<h1 style='margin-top: 0; margin-bottom: 20px; text-align: center;'>⚡ Fast Booking</h1>", unsafe_allow_html=True)
     with c_close:
-        if st.button("✖", type="primary", key="close_fast"):
+        if st.button("✖", key="close_fast"):
             st.session_state.fast_mode_active = False
             st.rerun()
     
@@ -561,7 +561,7 @@ if st.session_state.get("fast_mode_active"):
         players = VALID_PLAYERS + ["Alle"]
         
         for row in range(2):
-            cols = st.columns(4)
+            cols = st.columns(4, gap="large")
             for col_idx in range(4):
                 idx = row * 4 + col_idx
                 if idx < len(players):
@@ -570,10 +570,12 @@ if st.session_state.get("fast_mode_active"):
                         if st.button(p, key=f"fp_{p}", use_container_width=True):
                             st.session_state.fast_mode_player = p
                             st.rerun()
+            if row == 0:
+                st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
     else:
         fast_amounts = [5, 10, 15, 20, 30, 40, 50, 100]
         for row in range(2):
-            cols = st.columns(4)
+            cols = st.columns(4, gap="large")
             for col_idx in range(4):
                 idx = row * 4 + col_idx
                 if idx < len(fast_amounts):
