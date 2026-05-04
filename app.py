@@ -502,8 +502,8 @@ if st.session_state.get("fast_mode_active"):
 
         /* Riesige Grid Buttons (Secondary) */
         div[data-testid="column"] button[kind="secondary"] {
-            height: 180px !important;
-            font-size: 36px !important;
+            height: 30vh !important;
+            font-size: 44px !important;
             font-weight: 800 !important;
             border-radius: 24px !important;
             border: 3px solid #E2E8F0 !important;
@@ -540,7 +540,7 @@ if st.session_state.get("fast_mode_active"):
     
     c_title, c_close = st.columns([10, 1])
     with c_title:
-        st.markdown("<h1 style='margin-bottom: 30px;'>⚡ Fast Booking</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='margin-bottom: 30px;'>⚡ Kasse (Fast Booking)</h1>", unsafe_allow_html=True)
     with c_close:
         if st.button("✖", type="primary", key="close_fast"):
             st.session_state.fast_mode_active = False
@@ -548,7 +548,7 @@ if st.session_state.get("fast_mode_active"):
     
     if st.session_state.get("fast_mode_player") is None:
         st.markdown("<h3 style='color: #64748B; margin-bottom: 20px;'>1. Spieler wählen</h3>", unsafe_allow_html=True)
-        players = VALID_PLAYERS + ["Sonstiges"]
+        players = VALID_PLAYERS + ["Alle"]
         
         for row in range(2):
             cols = st.columns(4)
@@ -579,17 +579,28 @@ if st.session_state.get("fast_mode_active"):
                     with cols[col_idx]:
                         if st.button(f"{amt} €", key=f"fa_{amt}", use_container_width=True):
                             with st.spinner("Buche..."):
-                                booking_id, now = write_booking(
-                                    conn, p_name, "Einzahlung", float(amt), st.session_state.active_session_id
-                                )
-                                st.session_state.last_booking = {
-                                    'id': booking_id,
-                                    'time': now,
-                                    'summary': f"Einzahlung · {p_name} · {amt:.2f}€"
-                                }
-                                if amt >= 100:
-                                    send_ntfy("Einzahlung", f"{p_name}: {amt:.2f}€", "moneybag")
-                                st.toast(f"✅ {amt:.2f}€ für {p_name} eingezahlt", icon="♠️")
+                                if p_name == "Alle":
+                                    for p in VALID_PLAYERS:
+                                        write_booking(
+                                            conn, p, "Einzahlung", float(amt), st.session_state.active_session_id
+                                        )
+                                    st.session_state.last_booking = None  # Undo für Sammelbuchung deaktivieren
+                                    if amt >= 50:
+                                        send_ntfy("Sammel-Einzahlung", f"ALLE (7x): {amt:.2f}€", "moneybag")
+                                    st.toast(f"✅ {amt:.2f}€ für ALLE ({len(VALID_PLAYERS)}x) verbucht!", icon="♠️")
+                                else:
+                                    booking_id, now = write_booking(
+                                        conn, p_name, "Einzahlung", float(amt), st.session_state.active_session_id
+                                    )
+                                    st.session_state.last_booking = {
+                                        'id': booking_id,
+                                        'time': now,
+                                        'summary': f"Einzahlung · {p_name} · {amt:.2f}€"
+                                    }
+                                    if amt >= 100:
+                                        send_ntfy("Einzahlung", f"{p_name}: {amt:.2f}€", "moneybag")
+                                    st.toast(f"✅ {amt:.2f}€ für {p_name} eingezahlt", icon="♠️")
+                                
                                 st.session_state.fast_mode_player = None
                                 st.cache_data.clear()
                                 st.rerun()
