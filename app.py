@@ -540,7 +540,7 @@ if st.session_state.get("fast_mode_active"):
     
     c_title, c_close = st.columns([10, 1])
     with c_title:
-        st.markdown("<h1 style='margin-bottom: 30px;'>⚡ Kasse (Fast Booking)</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='margin-bottom: 30px;'>⚡ Fast Booking</h1>", unsafe_allow_html=True)
     with c_close:
         if st.button("✖", type="primary", key="close_fast"):
             st.session_state.fast_mode_active = False
