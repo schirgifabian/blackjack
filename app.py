@@ -34,6 +34,10 @@ if 'active_session_id' not in st.session_state:
     st.session_state.active_session_id = None
 if 'reset_amount' not in st.session_state:
     st.session_state.reset_amount = False
+if 'fast_mode_active' not in st.session_state:
+    st.session_state.fast_mode_active = False
+if 'fast_mode_player' not in st.session_state:
+    st.session_state.fast_mode_player = None
 
 if st.session_state.reset_amount:
     st.session_state.trans_amount = 10.0
@@ -460,13 +464,19 @@ with st.sidebar:
     st.markdown("#### 🎰 Session")
     if st.session_state.active_session_id:
         st.success(f"Aktiv: `{st.session_state.active_session_id[:8]}`")
+        if st.button("⚡ Fast Mode öffnen", use_container_width=True, type="primary"):
+            st.session_state.fast_mode_active = True
+            st.rerun()
         if st.button("⏹️ Session beenden", use_container_width=True):
             st.session_state.active_session_id = None
+            st.session_state.fast_mode_active = False
             st.toast("Session beendet")
             st.rerun()
     else:
         if st.button("▶️ Session starten", use_container_width=True, type="primary"):
             st.session_state.active_session_id = uuid.uuid4().hex[:12]
+            st.session_state.fast_mode_active = True
+            st.session_state.fast_mode_player = None
             st.toast(f"Session gestartet: {st.session_state.active_session_id[:8]}")
             st.rerun()
 
@@ -474,6 +484,84 @@ with st.sidebar:
     if st.button("🔄 Sync", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+
+
+# --- FAST MODE OVERLAY ---
+if st.session_state.get("fast_mode_active"):
+    st.markdown("""
+    <style>
+        div[data-testid="column"] button {
+            height: 120px !important;
+            font-size: 26px !important;
+            font-weight: 800 !important;
+            border-radius: 20px !important;
+            border: 2px solid #E2E8F0 !important;
+            transition: all 0.2s;
+            background-color: white;
+            color: #0F172A;
+        }
+        div[data-testid="column"] button:hover {
+            border-color: #10B981 !important;
+            background-color: #F8FAFC !important;
+            transform: scale(1.02);
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if st.button("❌ Ansicht verlassen"):
+        st.session_state.fast_mode_active = False
+        st.rerun()
+        
+    st.markdown("<h2 style='text-align: center; margin-bottom: 20px;'>⚡ Fast Booking</h2>", unsafe_allow_html=True)
+    
+    if st.session_state.get("fast_mode_player") is None:
+        st.markdown("<h4 style='text-align: center; color: #64748B; margin-bottom: 20px;'>1. Spieler wählen</h4>", unsafe_allow_html=True)
+        players = VALID_PLAYERS + ["Sonstiges"]
+        
+        for row in range(2):
+            cols = st.columns(4)
+            for col_idx in range(4):
+                idx = row * 4 + col_idx
+                if idx < len(players):
+                    p = players[idx]
+                    with cols[col_idx]:
+                        if st.button(p, key=f"fp_{p}", use_container_width=True):
+                            st.session_state.fast_mode_player = p
+                            st.rerun()
+    else:
+        p_name = st.session_state.fast_mode_player
+        st.markdown(f"<h4 style='text-align: center; color: #10B981; margin-bottom: 20px;'>2. Einzahlung für {p_name}</h4>", unsafe_allow_html=True)
+        
+        if st.button("⬅️ Zurück zur Spielerauswahl"):
+            st.session_state.fast_mode_player = None
+            st.rerun()
+            
+        st.write("")
+        fast_amounts = [5, 10, 15, 20, 30, 40, 50, 100]
+        for row in range(2):
+            cols = st.columns(4)
+            for col_idx in range(4):
+                idx = row * 4 + col_idx
+                if idx < len(fast_amounts):
+                    amt = fast_amounts[idx]
+                    with cols[col_idx]:
+                        if st.button(f"{amt} €", key=f"fa_{amt}", use_container_width=True):
+                            with st.spinner("Buche..."):
+                                booking_id, now = write_booking(
+                                    conn, p_name, "Einzahlung", float(amt), st.session_state.active_session_id
+                                )
+                                st.session_state.last_booking = {
+                                    'id': booking_id,
+                                    'time': now,
+                                    'summary': f"Einzahlung · {p_name} · {amt:.2f}€"
+                                }
+                                if amt >= 100:
+                                    send_ntfy("Einzahlung", f"{p_name}: {amt:.2f}€", "moneybag")
+                                st.toast(f"✅ {amt:.2f}€ für {p_name} eingezahlt", icon="♠️")
+                                st.session_state.fast_mode_player = None
+                                st.cache_data.clear()
+                                st.rerun()
+    st.stop()
 
 
 # --- HEADER ---
