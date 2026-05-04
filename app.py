@@ -230,9 +230,15 @@ def calc_netto(row):
     a = str(row["Aktion"]).lower()
     return -b if (("ausgabe" in a or "auszahlung" in a) and b > 0) else b
 
+def get_conn():
+    """Connection-Objekt – NICHT cachen (nicht pickle-fähig)."""
+    return st.connection("gsheets", type=GSheetsConnection)
+
+
 @st.cache_data(ttl=30)
 def load_data():
-    conn = st.connection("gsheets", type=GSheetsConnection)
+    """Daten laden und aufbereiten. Gibt nur den DataFrame zurück (cachebar)."""
+    conn = get_conn()
     try:
         df = conn.read(worksheet="Buchungen", ttl=0)
         rename_map = {"Spieler": "Name", "Typ": "Aktion", "Zeit": "Zeitstempel"}
@@ -257,13 +263,13 @@ def load_data():
             )
             df["Netto"] = df.apply(calc_netto, axis=1)
             df["Session_Date"] = df["Full_Date"].apply(get_session_date)
-            return df.sort_values("Full_Date", ascending=False).reset_index(drop=True), conn
+            return df.sort_values("Full_Date", ascending=False).reset_index(drop=True)
     except Exception as e:
         log.error(f"load_data failed: {e}")
     return pd.DataFrame(columns=[
         "Datum", "Zeitstempel", "Name", "Aktion", "Betrag", "Netto",
         "Full_Date", "Session_Date", "Session_ID", "Booking_ID"
-    ]), conn
+    ])
 
 
 def write_booking(conn, name, typ, amount, session_id):
@@ -429,7 +435,8 @@ def player_streak(df_all, player):
 
 
 # --- LOAD ---
-df, conn = load_data()
+conn = get_conn()
+df = load_data()
 balance = df["Netto"].sum() if not df.empty else 0.0
 
 
