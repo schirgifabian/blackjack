@@ -530,9 +530,9 @@ if st.session_state.get("fast_mode_active"):
             transition: all 0.2s ease !important;
         }
         button p, button div {
-            font-size: 18px !important;
+            font-size: 20px !important;
             font-weight: 600 !important;
-            font-family: 'Inter', sans-serif !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
             color: #475569 !important;
             margin: 0 !important;
         }
@@ -563,9 +563,9 @@ if st.session_state.get("fast_mode_active"):
         
         div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button p, 
         div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button div {
-            font-size: 44px !important; 
+            font-size: 48px !important; 
             font-weight: 600 !important;
-            font-family: 'Inter', sans-serif !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
             letter-spacing: -1px !important;
             color: #1E293B !important;
             margin: 0 !important;
@@ -614,14 +614,14 @@ if st.session_state.get("fast_mode_active"):
     p_name = st.session_state.get("fast_mode_player")
 
     # Header & Action Button nebeneinander
-    header_col, btn_col = st.columns([4, 1], gap="medium")
+    header_col, btn_col = st.columns([5, 1], gap="large")
     
     with header_col:
-        back_label = f"<span style='font-size:24px; color:#64748B; margin-right:12px;'>⬅️ {p_name}</span>" if p_name else ""
+        title_text = f"Einzahlung für {p_name}" if p_name else "Fast Booking"
         st.markdown(f"""
         <div style="display: flex; align-items: center; padding: 12px 0 0 12px; margin-bottom: 20px;">
-            <h1 style="margin: 0; font-size: 42px; font-weight: 700; color: #0F172A; letter-spacing: -1px;">
-                {back_label}⚡ Fast Booking
+            <h1 style="margin: 0; font-size: 42px; font-weight: 700; color: #0F172A; letter-spacing: -2px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+                {title_text}
             </h1>
         </div>
         """, unsafe_allow_html=True)
@@ -629,11 +629,11 @@ if st.session_state.get("fast_mode_active"):
     with btn_col:
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         if p_name is not None:
-            if st.button("⬅️ Zurück", key="back_fast", use_container_width=True):
+            if st.button("Zurück", key="back_fast", use_container_width=True):
                 st.session_state.fast_mode_player = None
                 st.rerun()
         else:
-            if st.button("✖ Schließen", key="close_fast", use_container_width=True):
+            if st.button("✖", key="close_fast", use_container_width=True):
                 st.session_state.fast_mode_active = False
                 st.rerun()
 
