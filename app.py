@@ -983,39 +983,13 @@ elif page == "Statistik":
             "Full_Date", "Session_Date", "Balance"
         ])
 
-    filter_options = ["Aktuelle Session", "Gesamt", "Dieser Monat", "Benutzerdefiniert"]
-    scope = st.pills("Zeitraum", filter_options, default="Aktuelle Session")
-    today = datetime.now(TZ).date()
+    t1, t2, t3, t4 = st.tabs(["Aktuelle Session", "Gesamt", "Vergleich", "Profil"])
 
-    if scope == "Aktuelle Session":
-        current_session_date = get_session_date(datetime.now(TZ))
-        df_s = df_calc[df_calc["Session_Date"] == current_session_date] if not df_calc.empty else df_calc
-    elif scope == "Gesamt":
-        df_s = df_calc
-    elif scope == "Dieser Monat":
-        df_s = df_calc[
-            (df_calc["Full_Date"].dt.month == today.month) & (df_calc["Full_Date"].dt.year == today.year)
-        ] if not df_calc.empty else df_calc
-    else:  # Benutzerdefiniert
-        d_range = st.date_input(
-            "Wähle Zeitraum:",
-            value=(today - timedelta(days=7), today),
-            format="DD.MM.YYYY"
-        )
-        if isinstance(d_range, tuple) and len(d_range) == 2:
-            df_s = df_calc[
-                (df_calc["Full_Date"].dt.date >= d_range[0]) & (df_calc["Full_Date"].dt.date <= d_range[1])
-            ]
-        elif isinstance(d_range, tuple) and len(d_range) == 1:
-            df_s = df_calc[df_calc["Full_Date"].dt.date == d_range[0]]
-        else:
-            df_s = df_calc
-
-    t1, t2, t3, t4, t5 = st.tabs(["Performance", "Timeline", "Kalender", "Vergleich", "Profil"])
-
-    # --- TAB 1: Performance ---
+    # --- TAB 1: Aktuelle Session ---
     with t1:
-        df_p = df_s[~df_s["Aktion"].astype(str).str.contains("Bank", case=False, na=False)] if not df_s.empty else df_s
+        current_session_date = get_session_date(datetime.now(TZ))
+        df_session = df_calc[df_calc["Session_Date"] == current_session_date] if not df_calc.empty else df_calc
+        df_p = df_session[~df_session["Aktion"].astype(str).str.contains("Bank", case=False, na=False)] if not df_session.empty else df_session
         if not df_p.empty:
             agg = df_p.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
             agg["Color"] = agg["Profit"].apply(lambda x: '#10B981' if x >= 0 else '#EF4444')
@@ -1032,78 +1006,31 @@ elif page == "Statistik":
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Keine Daten im gewählten Zeitraum.")
+            st.info("Noch keine Buchungen in der aktuellen Session.")
 
-    # --- TAB 2: Timeline ---
+    # --- TAB 2: Gesamt ---
     with t2:
-        if not df_s.empty:
-            df_h = df_s.sort_values("Full_Date")
-            fig_l = px.area(df_h, x="Full_Date", y="Balance")
-            min_y, max_y = df_h["Balance"].min(), df_h["Balance"].max()
-            padding = (max_y - min_y) * 0.1 if max_y != min_y else 10
-            fig_l.update_yaxes(range=[min_y - padding, max_y + padding])
-            fig_l.update_traces(line_color='#0F172A', fill='tozeroy', fillcolor='rgba(15, 23, 42, 0.1)')
-            fig_l.update_layout(
-                template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                height=350, yaxis_title=None, xaxis_title=None
+        df_p_all = df_calc[~df_calc["Aktion"].astype(str).str.contains("Bank", case=False, na=False)] if not df_calc.empty else df_calc
+        if not df_p_all.empty:
+            agg = df_p_all.groupby("Name")["Netto"].sum().mul(-1).reset_index(name="Profit").sort_values("Profit", ascending=False)
+            agg["Color"] = agg["Profit"].apply(lambda x: '#10B981' if x >= 0 else '#EF4444')
+            fig = px.bar(agg, x="Profit", y="Name", orientation='h', text="Profit")
+            fig.update_traces(
+                marker_color=agg["Color"],
+                texttemplate='%{text:+.2f} €',
+                textposition='outside',
+                textfont_family="JetBrains Mono"
             )
-            st.plotly_chart(fig_l, use_container_width=True)
+            fig.update_layout(
+                template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                height=400, yaxis_title=None, xaxis_title=None
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Keine Transaktionen in diesem Zeitraum.")
+            st.info("Noch keine Daten vorhanden.")
 
-    # --- TAB 3: Kalender-Heatmap ---
+    # --- TAB 3: Vergleich ---
     with t3:
-        if not df.empty:
-            year_options = sorted(df["Full_Date"].dt.year.dropna().unique().astype(int).tolist(), reverse=True)
-            if year_options:
-                sel_year = st.selectbox("Jahr", year_options, key="cal_year")
-                df_y = df[df["Full_Date"].dt.year == sel_year].copy()
-
-                # Aktivität pro Tag (Anzahl Buchungen)
-                daily = df_y.groupby(df_y["Session_Date"]).size().reset_index(name="Count")
-                daily["Session_Date"] = pd.to_datetime(daily["Session_Date"])
-
-                # Volle Jahresgrid bauen
-                start = pd.Timestamp(sel_year, 1, 1)
-                end = pd.Timestamp(sel_year, 12, 31)
-                all_days = pd.DataFrame({"Date": pd.date_range(start, end)})
-                merged = all_days.merge(daily, left_on="Date", right_on="Session_Date", how="left")
-                merged["Count"] = merged["Count"].fillna(0)
-                merged["Week"] = merged["Date"].dt.isocalendar().week
-                merged["DayOfWeek"] = merged["Date"].dt.dayofweek
-                merged["Month"] = merged["Date"].dt.month
-
-                # Plotly Heatmap
-                pivot = merged.pivot_table(index="DayOfWeek", columns="Week", values="Count", aggfunc="sum").fillna(0)
-                fig_cal = go.Figure(data=go.Heatmap(
-                    z=pivot.values,
-                    x=[f"W{w}" for w in pivot.columns],
-                    y=["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
-                    colorscale=[[0, "#F1F5F9"], [0.3, "#94A3B8"], [1, "#0F172A"]],
-                    showscale=True,
-                    hoverongaps=False,
-                    colorbar=dict(title="Buchungen", thickness=10),
-                ))
-                fig_cal.update_layout(
-                    template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                    height=250, margin=dict(l=20, r=20, t=20, b=20),
-                )
-                st.plotly_chart(fig_cal, use_container_width=True)
-
-                # Stats
-                play_days = (merged["Count"] > 0).sum()
-                total_book = int(merged["Count"].sum())
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Spieltage", play_days)
-                c2.metric("Buchungen gesamt", total_book)
-                c3.metric("Ø pro Spieltag", f"{(total_book / play_days):.1f}" if play_days else "0")
-            else:
-                st.info("Keine Daten verfügbar.")
-        else:
-            st.info("Keine Daten verfügbar.")
-
-    # --- TAB 4: Year-over-Year Vergleich ---
-    with t4:
         if not df.empty:
             df_yoy = df[~df["Aktion"].astype(str).str.contains("Bank", case=False, na=False)].copy()
             df_yoy["Year"] = df_yoy["Full_Date"].dt.year
@@ -1160,8 +1087,8 @@ elif page == "Statistik":
         else:
             st.info("Keine Daten verfügbar.")
 
-    # --- TAB 5: Profil ---
-    with t5:
+    # --- TAB 4: Profil ---
+    with t4:
         st.markdown("##### Spieler-Profil")
         sel_player = st.selectbox("Spieler wählen", VALID_PLAYERS)
 
