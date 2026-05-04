@@ -517,40 +517,46 @@ if st.session_state.get("fast_mode_active"):
             max-width: 100% !important;
         }
 
-        /* Zurück / Close Buttons (außerhalb Grid) */
-        div[data-testid="stButton"] button {
-            height: 90px !important;
-            border-radius: 24px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
-            border: 2px solid #E2E8F0 !important;
-            background: white !important;
+        /* 1. Globaler Button Style (Zurück / Close) */
+        button {
+            height: 100px !important;
+            border-radius: 28px !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
+            border: 2px solid rgba(255,255,255,0.8) !important;
+            background: rgba(255, 255, 255, 0.6) !important;
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            width: 100% !important;
         }
-        div[data-testid="stButton"] button p {
+        button p, button div {
             font-size: 28px !important;
             font-weight: 700 !important;
-            color: #0F172A !important;
+            color: #334155 !important;
             margin: 0 !important;
         }
 
-        /* ALLE Buttons in Spalten → quadratisch & riesig (Kassen-Style) */
-        div[data-testid="column"] button {
+        /* 2. Kassen-Buttons im Grid (stHorizontalBlock) */
+        div[data-testid="stHorizontalBlock"] button {
             aspect-ratio: 1 / 1 !important;
             height: auto !important;
             min-height: 0 !important;
-            border-radius: 32px !important;
-            border: 4px solid #CBD5E1 !important;
-            background: white !important;
-            box-shadow: 0 12px 30px rgba(0,0,0,0.08) !important;
-            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            border-radius: 40px !important;
+            background: rgba(255, 255, 255, 0.85) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border: 2px solid rgba(255, 255, 255, 0.9) !important;
+            box-shadow: 0 20px 50px rgba(31, 38, 135, 0.08), inset 0 4px 10px rgba(255,255,255,0.6) !important;
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* Springy Animation */
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            padding: 24px !important; /* Viel Padding für Touch-Target */
+            padding: 24px !important; 
             width: 100% !important;
         }
         
-        div[data-testid="column"] button p {
-            font-size: 56px !important; /* Deutlich größer für iPad */
+        div[data-testid="stHorizontalBlock"] button p, 
+        div[data-testid="stHorizontalBlock"] button div {
+            font-size: 52px !important; 
             font-weight: 800 !important;
             font-family: 'Inter', sans-serif !important;
             color: #0F172A !important;
@@ -559,36 +565,40 @@ if st.session_state.get("fast_mode_active"):
         }
         
         @media (max-width: 800px) {
-            div[data-testid="column"] button {
-                border-radius: 20px !important;
+            div[data-testid="stHorizontalBlock"] button {
+                border-radius: 24px !important;
                 padding: 12px !important;
             }
-            div[data-testid="column"] button p {
-                font-size: 32px !important; /* Fallback für kleine Screens */
+            div[data-testid="stHorizontalBlock"] button p,
+            div[data-testid="stHorizontalBlock"] button div {
+                font-size: 32px !important;
             }
         }
 
-        div[data-testid="column"] button:hover {
+        /* Hover & Active States für Premium Touch Feeling */
+        div[data-testid="stHorizontalBlock"] button:hover {
+            background: rgba(255, 255, 255, 1) !important;
             border-color: #10B981 !important;
-            background: #F0FDF4 !important;
-            transform: translateY(-4px) !important;
-            box-shadow: 0 20px 40px rgba(16,185,129,0.2) !important;
+            transform: translateY(-6px) scale(1.02) !important;
+            box-shadow: 0 24px 50px rgba(16,185,129,0.2), inset 0 4px 10px rgba(255,255,255,0.8) !important;
         }
-        div[data-testid="column"] button:hover p {
-            color: #065F46 !important;
+        div[data-testid="stHorizontalBlock"] button:hover p,
+        div[data-testid="stHorizontalBlock"] button:hover div {
+            color: #059669 !important;
         }
 
-        div[data-testid="column"] button:active {
-            transform: scale(0.95) !important;
-            background: #D1FAE5 !important;
+        div[data-testid="stHorizontalBlock"] button:active {
+            transform: scale(0.92) !important;
+            background: rgba(209, 250, 229, 0.9) !important;
             border-color: #059669 !important;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1) !important;
+            box-shadow: 0 8px 20px rgba(16,185,129,0.15), inset 0 2px 5px rgba(255,255,255,0.4) !important;
         }
 
-        /* Spalten-Abstand vergrößern */
+        /* Spalten-Abstand an Kassenlayout anpassen */
         div[data-testid="stHorizontalBlock"] {
-            gap: 2rem !important; /* Größere Gaps zwischen den Quadraten */
-            margin-bottom: 2rem !important;
+            gap: 2.5rem !important; 
+            margin-bottom: 2.5rem !important;
+            padding: 1rem !important;
         }
     </style>
     """, unsafe_allow_html=True)
