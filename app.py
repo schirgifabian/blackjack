@@ -579,14 +579,25 @@ if st.session_state.get("fast_mode_active"):
             background: rgba(255, 255, 255, 0.85) !important;
             backdrop-filter: blur(20px) !important;
             -webkit-backdrop-filter: blur(20px) !important;
-            border: 1px solid rgba(255, 255, 255, 0.9) !important;
+            border: 2px solid rgba(203, 213, 225, 0.5) !important;
             box-shadow: 0 16px 40px rgba(31, 38, 135, 0.05), inset 0 2px 8px rgba(255,255,255,0.8) !important;
-            transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important; /* Springy Animation */
+            transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             padding: 24px !important; 
             width: 100% !important;
+        }
+
+        /* Ausgewählte Spieler im Multi-Modus: grüner Rahmen + Glow */
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button[kind="primary"] {
+            border: 3px solid #10B981 !important;
+            background: rgba(209, 250, 229, 0.5) !important;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.25), inset 0 2px 8px rgba(255,255,255,0.8) !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button[kind="primary"] p,
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button[kind="primary"] div {
+            color: #059669 !important;
         }
         
         div[data-testid="stHorizontalBlock"]:has(> div:nth-child(4)) button p, 
@@ -683,7 +694,25 @@ if st.session_state.get("fast_mode_active"):
                 st.session_state.fast_mode_selected_players = []
                 st.rerun()
 
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    # Visueller Indikator: ausgewählte Spieler im Multi-Modus
+    if st.session_state.fast_mode_multi and p_name is None:
+        selected = st.session_state.fast_mode_selected_players
+        if selected:
+            pills_html = " ".join([f'<span style="display:inline-block; padding:6px 16px; border-radius:12px; background:#10B981; color:white; font-weight:600; font-size:15px; margin:0 4px;">{name}</span>' for name in selected])
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; gap:10px; padding:12px 18px; border-radius:16px; background:rgba(209,250,229,0.4); border:1px solid rgba(16,185,129,0.3); margin-bottom:16px;">
+                <span style="font-size:14px; color:#64748B; font-weight:500; white-space:nowrap;">Auswahl:</span>
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">{pills_html}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="padding:12px 18px; border-radius:16px; background:rgba(241,245,249,0.6); border:1px dashed rgba(148,163,184,0.5); margin-bottom:16px; text-align:center;">
+                <span style="font-size:15px; color:#94A3B8; font-weight:500;">Spieler antippen zum Auswählen</span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     if p_name is None:
         players = VALID_PLAYERS + ["Alle"]
@@ -781,18 +810,37 @@ if page == "Übersicht":
             elapsed = (datetime.now(TZ) - st.session_state.last_booking['time']).total_seconds()
             if elapsed < UNDO_WINDOW_SECONDS:
                 remaining = int(UNDO_WINDOW_SECONDS - elapsed)
-                c_undo1, c_undo2 = st.columns([3, 1])
-                with c_undo1:
-                    st.warning(f"⏪ {st.session_state.last_booking['summary']} · {remaining}s zum Rückgängigmachen")
-                with c_undo2:
-                    if st.button("Undo", type="primary", use_container_width=True):
-                        if delete_booking(conn, st.session_state.last_booking['id']):
-                            st.toast("✅ Buchung rückgängig gemacht")
-                            st.session_state.last_booking = None
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error("Konnte Buchung nicht finden")
+                summary = st.session_state.last_booking['summary']
+                st.markdown(f"""
+                <div style="
+                    display: flex; align-items: center; justify-content: space-between;
+                    padding: 16px 24px;
+                    border-radius: 20px;
+                    background: rgba(255, 255, 255, 0.8);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(234, 179, 8, 0.3);
+                    box-shadow: 0 4px 16px rgba(234, 179, 8, 0.1);
+                    margin-bottom: 20px;
+                ">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background: #EAB308; animation: pulse 1.5s infinite;"></div>
+                        <div>
+                            <div style="font-weight: 600; font-size: 15px; color: #0F172A;">{summary}</div>
+                            <div style="font-size: 12px; color: #94A3B8; margin-top: 2px;">{remaining}s zum Rückgängigmachen</div>
+                        </div>
+                    </div>
+                </div>
+                <style>@keyframes pulse {{ 0%,100% {{ opacity:1; }} 50% {{ opacity:0.3; }} }}</style>
+                """, unsafe_allow_html=True)
+                if st.button("Rückgängig", type="primary", use_container_width=True, key="undo_btn"):
+                    if delete_booking(conn, st.session_state.last_booking['id']):
+                        st.toast("Buchung rückgängig gemacht")
+                        st.session_state.last_booking = None
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("Konnte Buchung nicht finden")
             else:
                 st.session_state.last_booking = None
 
